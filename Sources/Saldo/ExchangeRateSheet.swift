@@ -21,15 +21,16 @@ struct ExchangeRateSheet: View {
             )
             .focused($isFocused)
             Text("Rates are entered by hand and applied to every account in \(code).")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .formHint()
         }
         .formStyle(.grouped)
-        .frame(width: 400)
+        .pageList()
+        .frame(width: 440)
         .navigationTitle("\(code) exchange rate")
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel") { dismiss() }
+                .buttonStyle(.pill(.secondary))
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button("Save") {
@@ -37,6 +38,7 @@ struct ExchangeRateSheet: View {
                     dismiss()
                 }
                 .disabled(rate <= 0)
+                .buttonStyle(.pill(.primary))
             }
         }
         .onAppear { isFocused = true }

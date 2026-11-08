@@ -5,13 +5,6 @@ import UniformTypeIdentifiers
 struct SettingsView: View {
     let store: LedgerStore
     let appLock: AppLock
-    @State private var isAddingCategory = false
-    @State private var editingCategory: LedgerCategory?
-    @State private var isImporting = false
-    @State private var didCopyCSVTemplate = false
-    @State private var importSummary: CSVImportSummary?
-    @State private var importError = ""
-    @State private var isShowingImportError = false
     @State private var isShowingResetConfirmation = false
     @State private var isResetAuthenticating = false
     @State private var resetError = ""
@@ -20,7 +13,7 @@ struct SettingsView: View {
     @State private var dataError = ""
     @State private var isShowingDataError = false
     @State private var pendingRestoreURL: URL?
-    @Environment(AppRouter.self) private var router
+    @State private var editingRateCode: String?
 
     private var currencyOptions: [String] {
         Array(Set(supportedCurrencies + [store.settings.currencyCode])).sorted()
@@ -75,28 +68,6 @@ struct SettingsView: View {
                         Text(fontSize.rawValue).tag(fontSize)
                     }
                 }
-                Picker(
-                    "Imported category icon",
-                    selection: Binding(
-                        get: { store.settings.defaultImportedCategoryIcon },
-                        set: { store.updateDefaultImportedCategoryIcon($0) }
-                    )
-                ) {
-                    ForEach(CategoryIcon.allCases) { icon in
-                        Label(icon.title, systemImage: icon.rawValue).tag(icon)
-                    }
-                }
-                Picker(
-                    "Imported category color",
-                    selection: Binding(
-                        get: { store.settings.defaultImportedCategoryColor },
-                        set: { store.updateDefaultImportedCategoryColor($0) }
-                    )
-                ) {
-                    ForEach(CategoryColor.allCases) { color in
-                        CategoryColorLabel(color: color).tag(color)
-                    }
-                }
             }
 
             if !store.foreignCurrencies.isEmpty {
@@ -109,21 +80,21 @@ struct SettingsView: View {
                                 Text(
                                     "1 \(code) = \(rate.formatted(.number.precision(.fractionLength(0...6)))) \(store.settings.currencyCode)"
                                 )
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(DS.Palette.textSecondary)
                             } else {
-                                Text("Rate needed").foregroundStyle(.orange)
+                                Text("Rate needed").foregroundStyle(DS.Palette.warning)
                             }
                             Button("Edit rate", systemImage: "pencil") {
-                                router.sheet = .exchangeRate(code)
+                                editingRateCode = code
                             }
-                            .labelStyle(.iconOnly)
+                            .buttonStyle(.icon)
+                            .help("Edit the exchange rate for \(code)")
                         }
                     }
                     Text(
-                        "Totals, charts and budgets convert foreign accounts to your main currency using these rates."
+                        "Totals and charts convert foreign accounts to your main currency using these rates."
                     )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .formHint()
                 }
             }
 
@@ -140,83 +111,44 @@ struct SettingsView: View {
                     }
                 }
                 Text("You can also lock at any time with \u{2318}L.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .formHint()
                 LabeledContent(
                     "Registered to",
                     value: "\(store.settings.ownerName) (\(store.settings.ownerUsername))")
                 Text(
-                    "Saldo unlocks with your fingerprint or your Mac password. Lock it any time with \u{2318}L."
+                    "The ledger is encrypted on this Mac. Touch ID or your Mac password unlocks it, and the data stays in memory only while Saldo is unlocked."
                 )
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            }
-
-            Section("Categories") {
-                Button("Add category", systemImage: "plus") { isAddingCategory = true }
-                ForEach(store.categories) { category in
-                    HStack {
-                        Image(systemName: category.icon.rawValue)
-                            .frame(width: 20)
-                            .foregroundStyle(category.color.color)
-                        Text(category.name)
-                        Spacer()
-                        Button("Edit category", systemImage: "pencil") {
-                            editingCategory = category
-                        }
-                        .labelStyle(.iconOnly)
-                        if category.name.caseInsensitiveCompare("Uncategorized") != .orderedSame {
-                            Button("Delete category", systemImage: "trash", role: .destructive) {
-                                store.deleteCategory(category)
-                            }
-                            .labelStyle(.iconOnly)
-                        }
-                    }
-                }
-            }
-
-            Section("Import") {
-                Button("Import CSV", systemImage: "square.and.arrow.down") {
-                    isImporting = true
-                }
-                Button("Copy CSV template", systemImage: "doc.on.doc") {
-                    copyCSVTemplate()
-                }
-                Text("Flow, Account, Category, Amount, Description, Date")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(
-                    "Dates use dd-MM-yyyy. Optional columns: Currency (for new accounts) and TransferID. Missing accounts and categories are created automatically; entries that already exist are skipped."
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                if didCopyCSVTemplate {
-                    Label("CSV template copied", systemImage: "checkmark")
-                        .font(.caption)
-                        .foregroundStyle(.green)
-                }
-                if let importSummary {
-                    Text(
-                        "Imported \(importSummary.importedEntries) entries. Added \(importSummary.createdAccounts) accounts and \(importSummary.createdCategories) categories. Skipped \(importSummary.duplicateRows) duplicates and \(importSummary.skippedRows) invalid rows."
-                    )
-                    .font(.caption)
-                }
+                .formHint()
             }
 
             Section("Backup") {
-                Button("Export entries as CSV\u{2026}", systemImage: "square.and.arrow.up") {
-                    exportCSV()
+                HStack(spacing: DS.Space.xs) {
+                    Button("Export CSV\u{2026}", systemImage: "square.and.arrow.up") {
+                        exportCSV()
+                    }
+                    .help("Save every entry as a spreadsheet file")
+                    Button("Back up\u{2026}", systemImage: "externaldrive") {
+                        backupDatabase()
+                    }
+                    .help("Save an encrypted copy of the database")
+                    Button("Restore\u{2026}", systemImage: "arrow.counterclockwise") {
+                        chooseBackupToRestore()
+                    }
+                    .help("Replace your data with a backup")
                 }
-                Button("Back up database\u{2026}", systemImage: "externaldrive") {
-                    backupDatabase()
+                .buttonStyle(.pill(.secondary, compact: true))
+                if let latest = store.latestAutomaticBackupLabel {
+                    Text("Latest automatic backup: \(latest).")
+                        .formHint()
                 }
-                Button("Restore from backup\u{2026}", systemImage: "arrow.counterclockwise") {
-                    chooseBackupToRestore()
-                }
+                Text(
+                    "Saldo keeps an encrypted backup on this Mac once a day, for 30 days. A backup only opens in Saldo on this Mac."
+                )
+                .formHint()
                 if !dataMessage.isEmpty {
                     Label(dataMessage, systemImage: "checkmark")
-                        .font(.caption)
-                        .foregroundStyle(.green)
+                        .font(DS.Typeface.caption)
+                        .foregroundStyle(DS.Palette.success)
                 }
             }
 
@@ -224,65 +156,52 @@ struct SettingsView: View {
                 HStack(spacing: 12) {
                     SaldoMark(size: 40)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(SaldoBrand.name).font(.headline)
+                        Text(SaldoBrand.name).font(DS.Typeface.title3)
                         Text(SaldoBrand.tagline)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .formHint()
                     }
                 }
                 .padding(.vertical, 2)
             }
 
-            Section("Danger Zone") {
+            Section("Delete data") {
                 Text(
-                    "Permanently delete all accounts, entries, categories, and settings from this Mac."
+                    "Permanently delete all accounts, entries, categories, bills, settings, and automatic backups from this Mac."
                 )
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .formHint()
                 Button("Delete all data", systemImage: "trash", role: .destructive) {
                     isShowingResetConfirmation = true
                 }
+                .buttonStyle(.pill(.destructive, compact: true))
                 .disabled(isResetAuthenticating)
+                .help("Erase everything Saldo stores on this Mac")
                 if isResetAuthenticating {
                     HStack(spacing: 8) {
                         ProgressView()
                         Text("Waiting for Touch ID")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(DS.Palette.textSecondary)
                     }
                 }
             }
         }
         .formStyle(.grouped)
+        .pageList()
         .navigationTitle("Settings")
-        .sheet(isPresented: $isAddingCategory) {
-            NavigationStack {
-                AddCategorySheet(store: store)
-            }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            PageHeader(title: "Settings")
+                .background(DS.Palette.background)
         }
-        .sheet(item: $editingCategory) { category in
-            NavigationStack {
-                EditCategorySheet(store: store, category: category)
-            }
-        }
-        .fileImporter(isPresented: $isImporting, allowedContentTypes: [.commaSeparatedText]) {
-            result in
-            switch result {
-            case .success(let url):
-                do {
-                    importSummary = try store.importCSV(from: url)
-                } catch {
-                    importError = error.localizedDescription
-                    isShowingImportError = true
+        .sheet(
+            isPresented: Binding(
+                get: { editingRateCode != nil },
+                set: { if !$0 { editingRateCode = nil } }
+            )
+        ) {
+            if let editingRateCode {
+                NavigationStack {
+                    ExchangeRateSheet(store: store, code: editingRateCode)
                 }
-            case .failure(let error):
-                importError = error.localizedDescription
-                isShowingImportError = true
             }
-        }
-        .alert("CSV import failed", isPresented: $isShowingImportError) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(importError)
         }
         .confirmationDialog(
             "Delete all Saldo data?",
@@ -318,7 +237,7 @@ struct SettingsView: View {
             Button("Cancel", role: .cancel) { pendingRestoreURL = nil }
         } message: {
             Text(
-                "Your current data is replaced. A copy of it is kept as saldo-before-restore.sqlite. You will verify your identity first."
+                "Your current data is replaced. A copy of it is kept as saldo-before-restore.sealed. You will verify your identity first."
             )
         }
     }
@@ -347,8 +266,8 @@ struct SettingsView: View {
 
     private func backupDatabase() {
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [UTType(filenameExtension: "sqlite") ?? .data]
-        panel.nameFieldStringValue = "saldo-backup-\(dateStamp).sqlite"
+        panel.allowedContentTypes = [UTType(filenameExtension: "saldo") ?? .data]
+        panel.nameFieldStringValue = "saldo-backup-\(dateStamp).saldo"
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
             try store.backupDatabase(to: url)
@@ -360,7 +279,12 @@ struct SettingsView: View {
 
     private func chooseBackupToRestore() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [UTType(filenameExtension: "sqlite") ?? .data, .data]
+        panel.allowedContentTypes = [
+            UTType(filenameExtension: "saldo") ?? .data,
+            UTType(filenameExtension: "sealed") ?? .data,
+            UTType(filenameExtension: "sqlite") ?? .data,
+            .data,
+        ]
         panel.allowsMultipleSelection = false
         guard panel.runModal() == .OK, let url = panel.url else { return }
         pendingRestoreURL = url
@@ -398,15 +322,6 @@ struct SettingsView: View {
         }
     }
 
-    private func copyCSVTemplate() {
-        let template = """
-            Flow,Account,Category,Amount,Description,Date
-            Expense,Checking,Food,42.50,Dinner,28-09-2026
-            """
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(template, forType: .string)
-        didCopyCSVTemplate = true
-    }
 }
 
 struct AddCategorySheet: View {
@@ -423,21 +338,19 @@ struct AddCategorySheet: View {
                 .focused($isNameFocused)
             Picker("Icon", selection: $icon) {
                 ForEach(CategoryIcon.allCases) { icon in
-                    Label(icon.title, systemImage: icon.rawValue).tag(icon)
+                    Label(icon.title, systemImage: Symbol.outline(icon.rawValue)).tag(icon)
                 }
             }
-            Picker("Color", selection: $color) {
-                ForEach(CategoryColor.allCases) { color in
-                    CategoryColorLabel(color: color).tag(color)
-                }
-            }
+            PaletteColorPicker(label: "Color", color: $color)
         }
         .formStyle(.grouped)
-        .frame(width: 400)
+        .pageList()
+        .frame(width: 440)
         .navigationTitle("New category")
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel") { dismiss() }
+                .buttonStyle(.pill(.secondary))
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button("Add") {
@@ -445,6 +358,7 @@ struct AddCategorySheet: View {
                     dismiss()
                 }
                 .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .buttonStyle(.pill(.primary))
             }
         }
         .onAppear { isNameFocused = true }
@@ -474,24 +388,21 @@ struct EditCategorySheet: View {
                 .focused($isNameFocused)
             Picker("Icon", selection: $icon) {
                 ForEach(CategoryIcon.allCases) { icon in
-                    Label(icon.title, systemImage: icon.rawValue).tag(icon)
+                    Label(icon.title, systemImage: Symbol.outline(icon.rawValue)).tag(icon)
                 }
             }
-            Picker("Color", selection: $color) {
-                ForEach(CategoryColor.allCases) { color in
-                    CategoryColorLabel(color: color).tag(color)
-                }
-            }
+            PaletteColorPicker(label: "Color", color: $color)
             Text("Renaming this category updates every entry that uses it.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .formHint()
         }
         .formStyle(.grouped)
+        .pageList()
         .frame(width: 420)
         .navigationTitle("Edit category")
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel") { dismiss() }
+                .buttonStyle(.pill(.secondary))
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button("Save") {
@@ -499,8 +410,104 @@ struct EditCategorySheet: View {
                     dismiss()
                 }
                 .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .buttonStyle(.pill(.primary))
             }
         }
         .onAppear { isNameFocused = true }
+    }
+}
+
+/// Every category with how often it is used. Opened from the Ledger.
+struct CategoriesSheet: View {
+    let store: LedgerStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var isAdding = false
+    @State private var editing: LedgerCategory?
+    @State private var pendingDeletion: LedgerCategory?
+
+    private func entryCount(_ category: LedgerCategory) -> Int {
+        store.entries.filter {
+            $0.category.caseInsensitiveCompare(category.name) == .orderedSame
+        }.count
+    }
+
+    var body: some View {
+        List {
+            ForEach(store.categories) { category in
+                let count = entryCount(category)
+                HStack(spacing: DS.Space.s) {
+                    IconBubble(systemName: category.icon.rawValue, tint: category.color.color)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(category.name)
+                            .font(DS.Typeface.bodyStrong)
+                            .foregroundStyle(DS.Palette.textPrimary)
+                        DetailLine([count == 1 ? "1 entry" : "\(count) entries"])
+                    }
+                    Spacer()
+                    Button("Edit \(category.name)", systemImage: "pencil") { editing = category }
+                        .buttonStyle(.icon)
+                        .help("Rename \(category.name) or change its icon and colour")
+                    if category.name.caseInsensitiveCompare("Uncategorized") != .orderedSame {
+                        Button("Delete \(category.name)", systemImage: "trash", role: .destructive) {
+                            pendingDeletion = category
+                        }
+                        .buttonStyle(.icon)
+                        .help("Delete \(category.name)")
+                    }
+                }
+                .padding(.vertical, DS.Space.xxs)
+                .contextMenu {
+                    Button("Edit", systemImage: "pencil") { editing = category }
+                    if category.name.caseInsensitiveCompare("Uncategorized") != .orderedSame {
+                        Button("Delete", systemImage: "trash", role: .destructive) {
+                            pendingDeletion = category
+                        }
+                    }
+                }
+            }
+        }
+        .pageList()
+        .frame(width: 440, height: 520)
+        .navigationTitle("Categories")
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Done") { dismiss() }
+                    .buttonStyle(.pill(.secondary))
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                Button("New category", systemImage: "plus") { isAdding = true }
+                    .buttonStyle(.pill(.primary))
+                    .help("Create a category you can use on entries")
+            }
+        }
+        .sheet(isPresented: $isAdding) {
+            NavigationStack { AddCategorySheet(store: store) }
+        }
+        .sheet(item: $editing) { category in
+            NavigationStack { EditCategorySheet(store: store, category: category) }
+        }
+        .confirmationDialog(
+            pendingDeletion.map { "Delete \($0.name)?" } ?? "Delete this category?",
+            isPresented: Binding(
+                get: { pendingDeletion != nil },
+                set: { if !$0 { pendingDeletion = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                if let pendingDeletion { store.deleteCategory(pendingDeletion) }
+                pendingDeletion = nil
+            }
+            Button("Cancel", role: .cancel) { pendingDeletion = nil }
+        } message: {
+            if let pendingDeletion {
+                let count = entryCount(pendingDeletion)
+                Text(
+                    count == 0
+                        ? "No entries use this category."
+                        : "\(count) \(count == 1 ? "entry moves" : "entries move") to Uncategorized. This cannot be undone."
+                )
+            }
+        }
     }
 }

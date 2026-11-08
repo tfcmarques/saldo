@@ -19,55 +19,70 @@ struct WelcomeScreen: View {
             SaldoMark(size: 72)
             VStack(spacing: 6) {
                 Text("Welcome to \(SaldoBrand.name)")
-                    .font(.largeTitle.weight(.bold))
+                    .font(DS.Typeface.display)
+                    .tracking(-0.5)
                 Text(SaldoBrand.tagline)
-                    .font(.title3)
-                    .foregroundStyle(.secondary)
+                    .font(DS.Typeface.body)
+                    .foregroundStyle(DS.Palette.textSecondary)
             }
 
             HStack(spacing: 12) {
-                Image(systemName: "person.crop.circle.fill")
-                    .font(.system(size: 34))
-                    .foregroundStyle(.tint)
+                IconBubble(systemName: "person", tint: DS.Palette.accent, size: 40)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(fullName).font(.headline)
+                    Text(fullName).font(DS.Typeface.title3)
                     Text("Mac user \u{201C}\(NSUserName())\u{201D}")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .formHint()
                 }
             }
-            .padding(14)
+            .padding(DS.Space.m)
             .frame(width: 320, alignment: .leading)
-            .background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
+            .background(
+                DS.Palette.surface,
+                in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
 
             Text(
-                "Saldo will be registered to this Mac user. From now on you unlock it with your fingerprint or your Mac password."
+                "Saldo will be registered to this Mac user. The ledger is encrypted on this Mac and unlocks with your fingerprint or your Mac password."
             )
-            .font(.callout)
-            .foregroundStyle(.secondary)
+            .font(DS.Typeface.small)
+            .foregroundStyle(DS.Palette.textSecondary)
             .multilineTextAlignment(.center)
             .frame(width: 380)
 
             Button {
-                appLock.register { store.registerCurrentUser() }
+                register()
             } label: {
                 Label("Register and continue", systemImage: "touchid")
                     .frame(minWidth: 200)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.pill(.primary))
             .controlSize(.large)
             .disabled(appLock.isAuthenticating)
+            .help("Confirm with Touch ID or your Mac password")
 
             if !appLock.message.isEmpty {
                 Text(appLock.message)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .formHint()
                     .multilineTextAlignment(.center)
                     .frame(width: 380)
             }
         }
-        .padding(40)
+        .padding(DS.Space.xxl)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .pageBackground()
+        .onAppear {
+            if TestDataMode.isActive { register() }
+        }
+    }
+
+    private func register() {
+        appLock.register {
+            if let error = store.open(using: appLock.authorization) {
+                appLock.message = error
+                return false
+            }
+            store.registerCurrentUser()
+            return true
+        }
     }
 }
 
@@ -79,14 +94,16 @@ struct LockScreen: View {
         VStack(spacing: 18) {
             SaldoMark(size: 64)
             VStack(spacing: 4) {
-                Text("Welcome back, \(store.settings.ownerFirstName)")
-                    .font(.title.weight(.semibold))
+                Text(
+                    store.settings.ownerFirstName.isEmpty
+                        ? "Welcome back" : "Welcome back, \(store.settings.ownerFirstName)")
+                    .font(DS.Typeface.title1)
                 Text(SaldoBrand.tagline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DS.Palette.textSecondary)
             }
             Text(appLock.message)
-                .font(.callout)
-                .foregroundStyle(.secondary)
+                .font(DS.Typeface.small)
+                .foregroundStyle(DS.Palette.textSecondary)
                 .multilineTextAlignment(.center)
                 .frame(width: 360)
             Button {
@@ -95,15 +112,16 @@ struct LockScreen: View {
                 Label("Unlock", systemImage: "touchid")
                     .frame(minWidth: 160)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.pill(.primary))
             .controlSize(.large)
             .disabled(appLock.isAuthenticating)
+            .help("Unlock with Touch ID or your Mac password")
             Text("Fingerprint or Mac password")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .formHint()
         }
-        .padding(40)
+        .padding(DS.Space.xxl)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .pageBackground()
         .alert(
             "This Saldo belongs to \(store.settings.ownerName)",
             isPresented: Binding(
@@ -112,6 +130,11 @@ struct LockScreen: View {
             )
         ) {
             Button("Continue as \(NSFullUserName())") {
+                if let error = store.open(using: appLock.authorization) {
+                    appLock.message = error
+                    appLock.declineOwnerChange()
+                    return
+                }
                 appLock.confirmOwnerChange { store.registerCurrentUser() }
             }
             Button("Cancel", role: .cancel) { appLock.declineOwnerChange() }

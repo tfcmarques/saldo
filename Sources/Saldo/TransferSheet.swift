@@ -7,7 +7,9 @@ struct TransferSheet: View {
     @State private var fromID: UUID?
     @State private var toID: UUID?
     @State private var amount = 0.0
+    @State private var isAmountValid = true
     @State private var received = 0.0
+    @State private var isReceivedValid = true
     @State private var receivedWasEdited = false
     @State private var date = Date()
     @State private var note = ""
@@ -24,8 +26,8 @@ struct TransferSheet: View {
             _date = State(initialValue: legs.source.date)
             _note = State(initialValue: legs.source.note)
         } else {
-            _fromID = State(initialValue: store.accounts.first?.id)
-            _toID = State(initialValue: store.accounts.dropFirst().first?.id)
+            _fromID = State(initialValue: store.openAccounts.first?.id)
+            _toID = State(initialValue: store.openAccounts.dropFirst().first?.id)
         }
     }
 
@@ -36,55 +38,60 @@ struct TransferSheet: View {
     private var receivedBinding: Binding<Double> {
         Binding(
             get: { received },
-            set: {
-                received = $0
-                receivedWasEdited = true
+            set: { newValue in
+                if newValue != received {
+                    received = newValue
+                    receivedWasEdited = true
+                }
             })
     }
 
     private var isValid: Bool {
-        guard let fromID, let toID, fromID != toID, amount > 0 else { return false }
-        return !needsConversion || received > 0
+        guard let fromID, let toID, fromID != toID, isAmountValid, amount > 0 else { return false }
+        return !needsConversion || (isReceivedValid && received > 0)
     }
 
     var body: some View {
         Form {
             Picker("From", selection: $fromID) {
-                ForEach(store.accounts) { account in
-                    Text(account.name).tag(Optional(account.id))
+                ForEach(store.includingSelection(fromID, in: store.openAccounts)) { account in
+                    Label(account.name, systemImage: Symbol.outline(account.icon.rawValue)).tag(Optional(account.id))
                 }
             }
             Picker("To", selection: $toID) {
-                ForEach(store.accounts) { account in
-                    Text(account.name).tag(Optional(account.id))
+                ForEach(store.includingSelection(toID, in: store.openAccounts)) { account in
+                    Label(account.name, systemImage: Symbol.outline(account.icon.rawValue)).tag(Optional(account.id))
                 }
             }
-            TextField(
-                "Amount (\(fromCurrency))", value: $amount,
-                format: .number.precision(.fractionLength(2)))
+            AmountField(
+                "Amount (\(fromCurrency))", value: $amount, currencyCode: fromCurrency,
+                isValid: $isAmountValid)
             if needsConversion {
-                TextField(
+                AmountField(
                     "Amount received (\(toCurrency))", value: receivedBinding,
-                    format: .number.precision(.fractionLength(2)))
+                    currencyCode: toCurrency, isValid: $isReceivedValid)
             }
             TextField("Description", text: $note)
             DatePicker("Date", selection: $date, displayedComponents: .date)
             if fromID == toID {
                 Text("Choose two different accounts.")
-                    .font(.caption)
-                    .foregroundStyle(.red)
+                    .font(DS.Typeface.caption)
+                    .foregroundStyle(DS.Palette.danger)
             }
         }
         .formStyle(.grouped)
+        .pageList()
         .frame(width: 440)
         .navigationTitle(entry == nil ? "New transfer" : "Edit transfer")
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel") { dismiss() }
+                .buttonStyle(.pill(.secondary))
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button(entry == nil ? "Transfer" : "Save") { save() }
                     .disabled(!isValid)
+                .buttonStyle(.pill(.primary))
             }
         }
         .onChange(of: amount) { refreshReceived() }
