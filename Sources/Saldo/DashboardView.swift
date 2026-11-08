@@ -263,7 +263,7 @@ struct DashboardView: View {
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ScrollView {
+                PageScroll {
                     VStack(alignment: .leading, spacing: DS.Space.xl) {
                         header
 
@@ -355,6 +355,8 @@ struct DashboardView: View {
             }
             .scrollTargetBehavior(.viewAligned)
             .scrollIndicators(.hidden)
+            // Cards are 128 pt tall; keep the row from stretching when the page lays out flat.
+            .frame(height: 128)
         }
     }
 

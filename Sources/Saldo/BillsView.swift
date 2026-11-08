@@ -27,7 +27,7 @@ struct BillsView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ScrollView {
+                PageScroll {
                     VStack(alignment: .leading, spacing: DS.Space.xl) {
                         summary
                         if !stillDue.isEmpty {

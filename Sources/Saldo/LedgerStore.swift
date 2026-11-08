@@ -412,7 +412,8 @@ final class LedgerStore {
     /// Registers the signed-in Mac user as the owner; call only after they verified their identity.
     func registerCurrentUser() {
         let username = NSUserName()
-        let fullName = NSFullUserName().trimmingCharacters(in: .whitespacesAndNewlines)
+        let fullName = TestDataMode.ownerName
+            ?? NSFullUserName().trimmingCharacters(in: .whitespacesAndNewlines)
         settings.ownerUsername = username
         settings.ownerName = fullName.isEmpty ? username : fullName
         saveSettings()

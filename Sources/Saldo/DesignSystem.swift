@@ -536,6 +536,7 @@ struct SearchField: View {
 @MainActor
 enum MacUser {
     static let picture: NSImage? = {
+        guard !TestDataMode.isActive else { return nil }
         let identity = CBIdentity(name: NSUserName(), authority: CBIdentityAuthority.default())
         return (identity as? CBUserIdentity)?.image
     }()

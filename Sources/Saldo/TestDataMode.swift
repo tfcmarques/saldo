@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 /// Debug builds only. Launch with `SALDO_TEST_DATA_DIR=/some/folder` to keep every file and
 /// preference away from the real Saldo data, skip Touch ID, and fill an empty ledger with samples.
@@ -13,6 +14,14 @@ enum TestDataMode {
 
     static var isActive: Bool { folder != nil }
 
+    /// Sample owner for test data, so screenshots never show the real Mac account.
+    static var ownerName: String? { isActive ? "Alex Morgan" : nil }
+
+    /// True while UISnapshots is capturing pages.
+    static var isSnapshotting: Bool {
+        isActive && ProcessInfo.processInfo.environment["SALDO_SNAPSHOT_DIR"] != nil
+    }
+
     /// Stands in for ~/Library/Application Support.
     static var applicationSupport: URL {
         folder
@@ -22,6 +31,20 @@ enum TestDataMode {
     // UserDefaults is thread-safe; it just is not marked Sendable.
     nonisolated(unsafe) static let defaults: UserDefaults =
         isActive ? UserDefaults(suiteName: "local.saldo.app.testdata") ?? .standard : .standard
+}
+
+/// A page's vertical scroll view. While snapshotting it lays content out flat instead,
+/// because AppKit does not draw scroll view content into an offscreen image.
+struct PageScroll<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        if TestDataMode.isSnapshotting {
+            content.frame(maxHeight: .infinity, alignment: .top)
+        } else {
+            ScrollView { content }
+        }
+    }
 }
 
 extension LedgerStore {
@@ -108,8 +131,8 @@ extension LedgerStore {
                 save(window, to: folder.appendingPathComponent(".warmup.png"))
                 for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
                     NSApp.appearance = NSAppearance(named: appearance)
-                    for width in [1280.0, 900.0] {
-                        window.setContentSize(NSSize(width: width, height: 820))
+                    for width in [1440.0] {
+                        window.setContentSize(NSSize(width: width, height: 900))
                         // Switch away first so the starting section redraws at the new size.
                         router.selection = .bills
                         try? await Task.sleep(for: .seconds(1))
