@@ -32,7 +32,6 @@ A private, native macOS app for tracking accounts, spending, debts and monthly b
 - [Troubleshooting](#troubleshooting)
 - [Contributing](#contributing)
 - [License](#license)
-- [Acknowledgements and contact](#acknowledgements-and-contact)
 
 ## About
 
@@ -45,23 +44,31 @@ your Mac password, and nothing is sent to a server.
 
 ## Screenshots
 
-<!-- TODO: add screenshots to docs/images/ and list them here. Example layout:
-
 <table>
   <tr>
-    <td align="center">
-      <img src="docs/images/dashboard.png" alt="Dashboard with net worth and charts" width="400"><br>
-      <sub>Dashboard</sub>
+    <td align="center" width="50%">
+      <img src="docs/images/dashboard-light.png" alt="Dashboard in light mode showing net worth, quick actions, key figures, account cards, a net worth chart, cash flow and recent activity">
+      <br><sub><b>Dashboard</b>: net worth, key figures, charts and recent activity</sub>
     </td>
-    <td align="center">
-      <img src="docs/images/ledger.png" alt="Ledger grouped by day" width="400"><br>
-      <sub>Ledger</sub>
+    <td align="center" width="50%">
+      <img src="docs/images/dashboard-dark.png" alt="The same dashboard in dark mode">
+      <br><sub><b>Dark mode</b>: designed as its own theme</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="docs/images/ledger.png" alt="Ledger grouped by day with search, filters and a scheduled payment">
+      <br><sub><b>Ledger</b>: entries grouped by day, with search and filters</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="docs/images/bills.png" alt="Bills page with available cash, bills still to pay and what is left this month">
+      <br><sub><b>Bills</b>: a monthly checklist that shows what is left</sub>
     </td>
   </tr>
 </table>
 
-Debug builds can capture every section on sample data; see "Configuration" below.
--->
+<sub>Screenshots use the built-in sample data. Debug builds can recreate them; see
+<a href="#configuration">Configuration</a>.</sub>
 
 ## Features
 
@@ -194,14 +201,6 @@ The key file next to the database is missing or does not match. Saldo leaves you
 file in place and tries the newest daily backup that still opens. Restore a backup from
 Settings if you have one.
 
-**The Dock or Finder still shows the old icon after an update.**
-macOS caches app icons. Restart the Dock and Finder:
-
-```bash
-killall Dock
-touch /Applications/Saldo.app && killall Finder
-```
-
 **Totals look wrong for an account in another currency.**
 Set its exchange rate in Settings. The dashboard warns when a rate is missing.
 
@@ -234,9 +233,3 @@ distribute Saldo or a modified version, you must make its source code available 
 same licence.
 
 Copyright (C) 2026 tfcmarques
-
-## Acknowledgements and contact
-
-Made by tfcmarques.
-
-<!-- TODO: add contact or social links -->
