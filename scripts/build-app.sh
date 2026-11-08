@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds a double-clickable build/Saldo.app (release build, generated icon, ad-hoc signed).
+# Builds a release Saldo.app and installs it to /Applications/Saldo.app.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -7,12 +7,15 @@ swift build -c release
 BIN="$(swift build -c release --show-bin-path)/Saldo"
 
 APP="build/Saldo.app"
+INSTALL="/Applications/Saldo.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/Saldo"
 
-ICONSET="$(mktemp -d)/AppIcon.iconset"
-swift scripts/make-icon.swift design/saldo-icon-source.png "$ICONSET"
+ICON_WORK="$(mktemp -d)"
+ICONSET="$ICON_WORK/AppIcon.iconset"
+swift scripts/draw-icon.swift "$ICON_WORK/source.png"
+swift scripts/make-icon.swift "$ICON_WORK/source.png" "$ICONSET"
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 
 cat > "$APP/Contents/Info.plist" <<'PLIST'
@@ -37,4 +40,17 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 PLIST
 
 codesign --force --sign - "$APP"
-echo "Built $APP. Drag it to /Applications, or run: open $APP"
+
+if pgrep -xq Saldo; then
+  echo "Closing Saldo so /Applications/Saldo.app can be replaced..."
+  osascript -e 'tell application "Saldo" to quit' >/dev/null 2>&1 || true
+  for _ in $(seq 1 25); do
+    pgrep -xq Saldo || break
+    sleep 0.2
+  done
+fi
+
+rm -rf "$INSTALL"
+ditto "$APP" "$INSTALL"
+codesign --force --sign - "$INSTALL"
+echo "Updated $INSTALL"
