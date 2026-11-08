@@ -48,18 +48,25 @@ enum DS {
         static let large: CGFloat = 20
     }
 
+    /// Sizes are macOS points at the Standard text size. The Text size setting multiplies
+    /// them by `scale`; AppRootView sets it and rebuilds the window when it changes.
+    @MainActor
     enum Typeface {
-        static let display = Font.system(size: 40, weight: .semibold)
-        static let pageTitle = Font.system(size: 26, weight: .semibold)
-        static let figure = Font.system(size: 26, weight: .semibold)
-        static let title1 = Font.title.weight(.semibold)
-        static let title2 = Font.title2.weight(.semibold)
-        static let title3 = Font.title3.weight(.semibold)
-        static let body = Font.body
-        static let bodyStrong = Font.body.weight(.medium)
-        static let small = Font.callout
-        static let caption = Font.caption
-        static let micro = Font.caption2
+        static var scale: CGFloat = 1
+
+        static func size(_ points: CGFloat) -> CGFloat { (points * scale).rounded() }
+
+        static var display: Font { .system(size: size(40), weight: .semibold) }
+        static var pageTitle: Font { .system(size: size(26), weight: .semibold) }
+        static var figure: Font { .system(size: size(26), weight: .semibold) }
+        static var title1: Font { .system(size: size(22), weight: .semibold) }
+        static var title2: Font { .system(size: size(17), weight: .semibold) }
+        static var title3: Font { .system(size: size(15), weight: .semibold) }
+        static var body: Font { .system(size: size(13)) }
+        static var bodyStrong: Font { .system(size: size(13), weight: .medium) }
+        static var small: Font { .system(size: size(12)) }
+        static var caption: Font { .system(size: size(10)) }
+        static var micro: Font { .system(size: size(10)) }
     }
 
     enum Motion {

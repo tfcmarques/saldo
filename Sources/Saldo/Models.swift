@@ -391,6 +391,14 @@ enum AppFontSize: String, CaseIterable, Identifiable {
     case large = "Large"
 
     var id: String { rawValue }
+
+    /// How much bigger every font is than Standard.
+    var scale: CGFloat {
+        switch self {
+        case .standard: 1
+        case .large: 1.18
+        }
+    }
 }
 
 struct AppSettings: Hashable {

@@ -93,9 +93,13 @@ struct AppRootView: View {
     @Environment(\.undoManager) private var undoManager
 
     var body: some View {
+        // The type scale reads this; AppNavigationView's .id rebuilds the pages when it changes.
+        let _ = DS.Typeface.scale = store.settings.fontSize.scale
         Group {
             if appLock.isUnlocked {
                 AppNavigationView(store: store, appLock: appLock)
+                    // Settings live in here, so changing Text size rebuilds every page.
+                    .id(store.settings.fontSize)
             } else if !store.hasExistingDatabase && !store.settings.isRegistered {
                 WelcomeScreen(store: store, appLock: appLock)
             } else {
@@ -142,9 +146,9 @@ struct AppRootView: View {
                 appLock.authenticate()
             }
         }
+        .font(DS.Typeface.body)
         .tint(DS.Palette.accent)
         .preferredColorScheme(themeOverride(for: store.settings.theme))
-        .dynamicTypeSize(textSizeOverride(for: store.settings.fontSize))
         .alert(
             "Could not save",
             isPresented: Binding(
@@ -182,9 +186,10 @@ struct AppNavigationView: View {
             NavigationStack {
                 sheetContent(sheet)
             }
+            .font(DS.Typeface.body)
         }
         #if DEBUG
-            .onAppear { UISnapshots.runIfRequested(router: router) }
+            .onAppear { UISnapshots.runIfRequested(router: router, store: store) }
         #endif
     }
 
@@ -228,13 +233,6 @@ private func themeOverride(for theme: AppTheme) -> ColorScheme? {
     case .system: nil
     case .light: .light
     case .dark: .dark
-    }
-}
-
-private func textSizeOverride(for fontSize: AppFontSize) -> DynamicTypeSize {
-    switch fontSize {
-    case .standard: .medium
-    case .large: .large
     }
 }
 

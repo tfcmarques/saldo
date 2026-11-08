@@ -118,7 +118,7 @@ extension LedgerStore {
     /// then quits. Draws the window itself, so it needs no Screen Recording permission.
     @MainActor
     enum UISnapshots {
-        static func runIfRequested(router: AppRouter) {
+        static func runIfRequested(router: AppRouter, store: LedgerStore) {
             guard TestDataMode.isActive,
                 let path = ProcessInfo.processInfo.environment["SALDO_SNAPSHOT_DIR"]
             else { return }
@@ -149,6 +149,15 @@ extension LedgerStore {
                         }
                     }
                 }
+                // The same page at the Large text size, then back to Standard.
+                NSApp.appearance = NSAppearance(named: .aqua)
+                store.updateFontSize(.large)
+                router.selection = .ledger
+                try? await Task.sleep(for: .seconds(1.5))
+                save(window, to: folder.appendingPathComponent("Ledger-large.png"))
+                store.updateFontSize(.standard)
+                try? await Task.sleep(for: .seconds(1))
+                save(window, to: folder.appendingPathComponent("Ledger-standard.png"))
                 router.selection = .ledger
                 router.sheet = .newEntry(.expense)
                 try? await Task.sleep(for: .seconds(1.2))
