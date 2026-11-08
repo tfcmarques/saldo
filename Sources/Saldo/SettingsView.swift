@@ -126,7 +126,7 @@ struct SettingsView: View {
                     Button("Export CSV\u{2026}", systemImage: "square.and.arrow.up") {
                         exportCSV()
                     }
-                    .help("Save every entry as a spreadsheet file")
+                    .help("Save every entry as a spreadsheet file. The file is not encrypted.")
                     Button("Back up\u{2026}", systemImage: "externaldrive") {
                         backupDatabase()
                     }
@@ -142,7 +142,7 @@ struct SettingsView: View {
                         .formHint()
                 }
                 Text(
-                    "Saldo keeps an encrypted backup on this Mac once a day, for 30 days. A backup only opens in Saldo on this Mac."
+                    "Saldo keeps an encrypted backup on this Mac once a day, for 30 days. A backup only opens in Saldo on this Mac. CSV exports are plain text, so keep them somewhere safe."
                 )
                 .formHint()
                 if !dataMessage.isEmpty {

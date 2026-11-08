@@ -111,6 +111,23 @@ final class AppLock {
         idleTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.lockIfIdle() }
         }
+        lockWhenMacIsLeft()
+    }
+
+    /// Lock as soon as the Mac sleeps, its screen locks, or another user takes over, so
+    /// the ledger is never open behind the login window. Runs whatever the auto-lock setting.
+    private func lockWhenMacIsLeft() {
+        let workspace = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.willSleepNotification, NSWorkspace.sessionDidResignActiveNotification] {
+            workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.lock() }
+            }
+        }
+        DistributedNotificationCenter.default().addObserver(
+            forName: Notification.Name("com.apple.screenIsLocked"), object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.lock() }
+        }
     }
 
     // Password fallback keeps a Mac without a working Touch ID sensor from being locked out.
