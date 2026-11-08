@@ -11,6 +11,10 @@ final class AppLock {
     /// Mac username Saldo is registered to; empty until first-run registration.
     var ownerUsername = ""
     var pendingOwnerChange = false
+    /// Context from the latest successful unlock.
+    @ObservationIgnored var authorization: LAContext?
+    /// Set when unlock succeeded but the database could not be opened. Stops the active-notification from prompting again.
+    var pausesAutomaticUnlock = false
     /// 0 disables auto-lock; kept in sync with the saved setting.
     var autoLockMinutes = 5
     @ObservationIgnored private var lastActivity = Date()
@@ -18,9 +22,11 @@ final class AppLock {
     @ObservationIgnored private var idleTimer: Timer?
 
     func authenticate() {
+        pausesAutomaticUnlock = false
         guard !isAuthenticating, !ownerUsername.isEmpty else { return }
-        evaluate(reason: "Unlock Saldo.") { [weak self] success in
-            guard let self, success else { return }
+        evaluate(reason: "Unlock Saldo.") { [weak self] success, context in
+            guard let self, success, let context else { return }
+            self.authorization = context
             if self.ownerUsername == NSUserName() {
                 self.unlockVerified()
             } else {
@@ -30,12 +36,14 @@ final class AppLock {
     }
 
     /// First launch: the current Mac user proves who they are, then becomes the owner.
-    func register(onSuccess: @escaping @MainActor () -> Void) {
+    /// `onSuccess` returns false when the database could not be opened; the app stays locked.
+    func register(onSuccess: @escaping @MainActor () -> Bool) {
         guard !isAuthenticating else { return }
         evaluate(reason: "Register \(NSFullUserName()) as the owner of Saldo.") {
-            [weak self] success in
-            guard let self, success else { return }
-            onSuccess()
+            [weak self] success, context in
+            guard let self, success, let context else { return }
+            self.authorization = context
+            guard onSuccess() else { return }
             self.unlockVerified()
         }
     }
@@ -61,13 +69,26 @@ final class AppLock {
         completion: @escaping @MainActor (Bool) -> Void
     ) {
         guard !isAuthenticating else { return }
-        evaluate(reason: reason, completion: completion)
+        evaluate(reason: reason) { success, _ in completion(success) }
     }
 
     func lock() {
         guard isUnlocked else { return }
         isUnlocked = false
+        authorization = nil
         message = "Saldo is locked. Authenticate to continue."
+    }
+
+    func noteLockedOut(_ message: String) {
+        self.message = message
+        authorization = nil
+        pausesAutomaticUnlock = true
+        isUnlocked = false
+    }
+
+    func noteStillUnlocked(_ message: String) {
+        self.message = message
+        isUnlocked = true
     }
 
     func noteActivity() {
@@ -93,15 +114,22 @@ final class AppLock {
     }
 
     // Password fallback keeps a Mac without a working Touch ID sensor from being locked out.
-    private func evaluate(reason: String, completion: @escaping @MainActor (Bool) -> Void) {
+    private func evaluate(
+        reason: String, completion: @escaping @MainActor (Bool, LAContext?) -> Void
+    ) {
         isAuthenticating = true
         let context = LAContext()
+        if TestDataMode.isActive {
+            isAuthenticating = false
+            completion(true, context)
+            return
+        }
         var evaluationError: NSError?
 
         guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &evaluationError) else {
             isAuthenticating = false
             message = "This Mac can't verify your identity. Set up Touch ID or a login password."
-            completion(false)
+            completion(false, nil)
             return
         }
 
@@ -114,7 +142,7 @@ final class AppLock {
                     self.message =
                         error?.localizedDescription ?? "Authentication failed. Try again."
                 }
-                completion(success)
+                completion(success, success ? context : nil)
             }
         }
     }
