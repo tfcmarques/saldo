@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:saldo}",
+            "name": "Debug Saldo",
+            "target": "Saldo",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug Saldo"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:saldo}",
+            "name": "Release Saldo",
+            "target": "Saldo",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release Saldo"
+        }
+    ]
+}
