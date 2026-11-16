@@ -3,6 +3,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# Version comes from the newest vX.Y.Z tag, the build number from the commit count.
+VERSION="$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || echo v0.0.0)"
+VERSION="${VERSION#v}"
+BUILD="$(git rev-list --count HEAD)"
+
 swift build -c release
 BIN="$(swift build -c release --show-bin-path)/Saldo"
 
@@ -18,7 +23,7 @@ swift scripts/draw-icon.swift "$ICON_WORK/source.png"
 swift scripts/make-icon.swift "$ICON_WORK/source.png" "$ICONSET"
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 
-cat > "$APP/Contents/Info.plist" <<'PLIST'
+cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -29,8 +34,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <key>CFBundleExecutable</key><string>Saldo</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>1.0</string>
-    <key>CFBundleVersion</key><string>1</string>
+    <key>CFBundleShortVersionString</key><string>$VERSION</string>
+    <key>CFBundleVersion</key><string>$BUILD</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>LSApplicationCategoryType</key><string>public.app-category.finance</string>
     <key>NSPrincipalClass</key><string>NSApplication</string>
@@ -53,4 +58,4 @@ fi
 rm -rf "$INSTALL"
 ditto "$APP" "$INSTALL"
 codesign --force --sign - "$INSTALL"
-echo "Updated $INSTALL"
+echo "Updated $INSTALL to $VERSION ($BUILD)"

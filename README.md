@@ -12,7 +12,7 @@ A private, native macOS app for tracking accounts, spending, debts and monthly b
 ![Swift 6](https://img.shields.io/badge/Swift-6-F05138?logo=swift&logoColor=white)
 ![SwiftUI](https://img.shields.io/badge/UI-SwiftUI-494FDF)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-00A87E)](LICENSE)
-<!-- TODO: add version and build status badges once releases and CI exist -->
+[![Version](https://img.shields.io/github/v/tag/tfcmarques/saldo?label=version&color=494FDF)](CHANGELOG.md)
 
 </div>
 
@@ -30,6 +30,7 @@ A private, native macOS app for tracking accounts, spending, debts and monthly b
 - [Project structure](#project-structure)
 - [Running tests](#running-tests)
 - [Troubleshooting](#troubleshooting)
+- [Versioning](#versioning)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -75,12 +76,13 @@ your Mac password, and nothing is sent to a server.
 - 🏦 **Accounts:** cash, checking, savings and investment accounts, each in its own currency, with hand-entered exchange rates.
 - 🧾 **Ledger:** income, expenses and transfers grouped by day, with search (⌘F), filters by date, account, type and category, and undo (⌘Z) for deletions.
 - 🗓️ **Scheduled payments and refunds:** set money aside now for something that posts on a later date.
-- 🪙 **Spare change:** round an expense up to the next whole unit and move the difference into a savings account.
+- 🪙 **Spare change:** round an expense up to the next whole unit, times a multiplier you pick, and move the difference into a savings account.
 - 📈 **Update value:** match an account to its real balance; Saldo records the gain or loss.
 - 🤝 **Debts:** track money you owe or are owed, and record payments from your accounts.
 - ✅ **Monthly bills:** a checklist of what repeats each month that shows what is left, without creating ledger entries.
 - 📊 **Dashboard:** net worth with its change over time, balance history, six months of cash flow, spending by category and recent activity.
-- 🔒 **Privacy:** an AES-GCM encrypted database, Touch ID or Mac password unlock, and auto-lock after inactivity.
+- 🔒 **Privacy:** an AES-GCM encrypted database, Touch ID right in the lock screen or your Mac password, and auto-lock after inactivity or when the Mac sleeps.
+- 🎨 **Appearance:** light, dark, Ambient and Glass (macOS 26) themes, and a Text size setting.
 - 💾 **Backups:** a daily encrypted backup kept for 30 days, manual backup and restore, and CSV export.
 - 🧮 **Calculator amounts:** type `12.50 + 3` or `100 - 10%` into any amount field.
 
@@ -118,7 +120,9 @@ only work in **debug** builds; release builds ignore them.
 | Name | Description | Required | Default |
 |---|---|---|---|
 | `SALDO_TEST_DATA_DIR` | Keeps all data and preferences in this folder instead of your real Saldo data, skips Touch ID, and fills an empty ledger with sample data. | No | Not set (uses your real data) |
-| `SALDO_SNAPSHOT_DIR` | With `SALDO_TEST_DATA_DIR`, saves a picture of every section in light and dark mode to this folder, then quits. | No | Not set |
+| `SALDO_SNAPSHOT_DIR` | With `SALDO_TEST_DATA_DIR`, saves a picture of every section in every theme, light and dark, and of every sheet to this folder, then quits. | No | Not set |
+| `SALDO_TEST_THEME` | With `SALDO_TEST_DATA_DIR`, opens in this theme (`Ambient`, `Glass`, ...). | No | Not set |
+| `SALDO_TEST_CLICK` | With `SALDO_TEST_THEME`, clicks the point `x,y` (from the window's top left), prints the selected section and quits. | No | Not set |
 
 > [!WARNING]
 > A debug build run **without** `SALDO_TEST_DATA_DIR` opens your real data. Use the
@@ -169,6 +173,7 @@ saldo/
 │   ├── LedgerStore*.swift   Data, encryption, backups and calculations
 │   ├── *View.swift          One file per section (Dashboard, Ledger, Bills, ...)
 │   └── Resources/           In-app icon
+├── CHANGELOG.md             What changed in each version
 ├── docs/DESIGN.md           The design system: tokens, components and rules
 ├── scripts/
 │   ├── build-app.sh         Builds, signs and installs Saldo.app
@@ -204,6 +209,23 @@ Settings if you have one.
 **Totals look wrong for an account in another currency.**
 Set its exchange rate in Settings. The dashboard warns when a rate is missing.
 
+## Versioning
+
+Saldo uses [Semantic Versioning](https://semver.org/). Each release is a git tag such as
+`v1.1.0`, and [CHANGELOG.md](CHANGELOG.md) summarises what changed in it.
+`scripts/build-app.sh` reads the newest tag for the version and counts commits for the build
+number; Settings, About shows both.
+
+To make a release:
+
+1. Move the notes under **Unreleased** in `CHANGELOG.md` to a new version heading.
+2. Commit, then tag and push.
+
+   ```bash
+   git tag -a v1.2.0 -m "Saldo 1.2.0"
+   git push origin main --follow-tags
+   ```
+
 ## Contributing
 
 1. Fork the repository.
@@ -221,7 +243,8 @@ Set its exchange rate in Settings. The dashboard warns when a rate is missing.
    SALDO_TEST_DATA_DIR=/tmp/saldo-test .build/debug/Saldo
    ```
 
-5. Commit and push, then open a pull request that describes what changed and why.
+5. Add a line under **Unreleased** in [CHANGELOG.md](CHANGELOG.md).
+6. Commit and push, then open a pull request that describes what changed and why.
 
 <!-- TODO: link CONTRIBUTING.md here if one is added -->
 

@@ -21,6 +21,15 @@ struct SettingsView: View {
 
     private let lockOptions = [0, 1, 5, 15, 30]
 
+    /// "Version 1.1.0 (24)" from the bundle scripts/build-app.sh writes; swift run has none.
+    private var appVersion: String {
+        let info = Bundle.main.infoDictionary
+        guard let version = info?["CFBundleShortVersionString"] as? String else {
+            return "Development build"
+        }
+        return "Version \(version) (\(info?["CFBundleVersion"] as? String ?? "?"))"
+    }
+
     private var spareChangeAccountID: UUID? {
         store.settings.spareChangeAccountID.flatMap { id in
             store.accounts.contains { $0.id == id } ? id : nil
@@ -208,6 +217,7 @@ struct SettingsView: View {
                         Text(SaldoBrand.name).font(DS.Typeface.title3)
                         Text(SaldoBrand.tagline)
                             .formHint()
+                        Text(appVersion).formHint()
                     }
                 }
                 .padding(.vertical, 2)
