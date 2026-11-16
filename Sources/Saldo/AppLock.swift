@@ -13,6 +13,10 @@ final class AppLock {
     var pendingOwnerChange = false
     /// Context from the latest successful unlock.
     @ObservationIgnored var authorization: LAContext?
+    /// Shown inside the lock screens by FingerprintView, so Touch ID needs no system window.
+    var fingerprintContext = LAContext()
+    var fingerprintAvailable = LAContext().canEvaluatePolicy(
+        .deviceOwnerAuthenticationWithBiometrics, error: nil)
     /// Set when unlock succeeded but the database could not be opened. Stops the active-notification from prompting again.
     var pausesAutomaticUnlock = false
     /// 0 disables auto-lock; kept in sync with the saved setting.
@@ -21,10 +25,10 @@ final class AppLock {
     @ObservationIgnored private var activityMonitor: Any?
     @ObservationIgnored private var idleTimer: Timer?
 
-    func authenticate() {
+    func authenticate(usingFingerprint: Bool = true) {
         pausesAutomaticUnlock = false
         guard !isAuthenticating, !ownerUsername.isEmpty else { return }
-        evaluate(reason: "Unlock Saldo.") { [weak self] success, context in
+        evaluate(reason: "Unlock Saldo.", usingFingerprint: usingFingerprint) { [weak self] success, context in
             guard let self, success, let context else { return }
             self.authorization = context
             if self.ownerUsername == NSUserName() {
@@ -37,9 +41,12 @@ final class AppLock {
 
     /// First launch: the current Mac user proves who they are, then becomes the owner.
     /// `onSuccess` returns false when the database could not be opened; the app stays locked.
-    func register(onSuccess: @escaping @MainActor () -> Bool) {
+    func register(usingFingerprint: Bool = true, onSuccess: @escaping @MainActor () -> Bool) {
         guard !isAuthenticating else { return }
-        evaluate(reason: "Register \(NSFullUserName()) as the owner of Saldo.") {
+        evaluate(
+            reason: "Register \(NSFullUserName()) as the owner of Saldo.",
+            usingFingerprint: usingFingerprint
+        ) {
             [weak self] success, context in
             guard let self, success, let context else { return }
             self.authorization = context
@@ -57,6 +64,14 @@ final class AppLock {
 
     func declineOwnerChange() {
         pendingOwnerChange = false
+    }
+
+    /// Stops a pending in-app fingerprint check so the password window can take over.
+    func cancelFingerprint() {
+        let pending = fingerprintContext
+        fingerprintContext = LAContext()  // its callback sees it was replaced and does nothing
+        pending.invalidate()
+        isAuthenticating = false
     }
 
     func unlockVerified() {
@@ -132,15 +147,22 @@ final class AppLock {
 
     // Password fallback keeps a Mac without a working Touch ID sensor from being locked out.
     private func evaluate(
-        reason: String, completion: @escaping @MainActor (Bool, LAContext?) -> Void
+        reason: String, usingFingerprint: Bool = false,
+        completion: @escaping @MainActor (Bool, LAContext?) -> Void
     ) {
         isAuthenticating = true
-        let context = LAContext()
         if TestDataMode.isActive {
             isAuthenticating = false
-            completion(true, context)
+            completion(true, LAContext())
             return
         }
+        fingerprintAvailable = fingerprintContext.canEvaluatePolicy(
+            .deviceOwnerAuthenticationWithBiometrics, error: nil)
+        if usingFingerprint && fingerprintAvailable {
+            evaluateFingerprint(reason: reason, completion: completion)
+            return
+        }
+        let context = LAContext()
         var evaluationError: NSError?
 
         guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &evaluationError) else {
@@ -158,6 +180,29 @@ final class AppLock {
                 if !success {
                     self.message =
                         error?.localizedDescription ?? "Authentication failed. Try again."
+                }
+                completion(success, success ? context : nil)
+            }
+        }
+    }
+
+    private func evaluateFingerprint(
+        reason: String, completion: @escaping @MainActor (Bool, LAContext?) -> Void
+    ) {
+        let context = fingerprintContext
+        context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason) {
+            [weak self] success, error in
+            Task { @MainActor in
+                guard let self, context === self.fingerprintContext else { return }
+                self.isAuthenticating = false
+                // A used context can't start a new check; the view rebuilds around the fresh one.
+                self.fingerprintContext = LAContext()
+                if !success {
+                    let code = (error as? LAError)?.code
+                    if code != .userCancel && code != .systemCancel && code != .appCancel {
+                        self.message =
+                            error?.localizedDescription ?? "Fingerprint not recognised. Try again."
+                    }
                 }
                 completion(success, success ? context : nil)
             }
