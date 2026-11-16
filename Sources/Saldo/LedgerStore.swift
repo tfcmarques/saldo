@@ -86,6 +86,7 @@ final class LedgerStore {
             }
             createTables()
             reload()
+            restyleDefaultCategoriesOnce()
             seedSampleDataIfEmpty()
             try persist()
             if let pendingRecoveryNote {
@@ -114,7 +115,7 @@ final class LedgerStore {
     func addAccount(
         name: String,
         type: AccountType,
-        icon: AccountIcon = .wallet,
+        icon: AccountIcon? = nil,
         color: AccountColor? = nil,
         openingBalance: Double,
         currencyCode: String = "",
@@ -123,7 +124,7 @@ final class LedgerStore {
         var account = Account(
             name: name,
             type: type,
-            icon: icon,
+            icon: icon ?? type.defaultIcon,
             color: color ?? nextAvailableAccountColor,
             openingBalance: openingBalance
         )
@@ -203,15 +204,18 @@ final class LedgerStore {
         reload()
     }
 
-    /// Amount set aside with an expense. Cents round up to the next euro (13.20 → 0.80).
-    /// A whole-euro amount sets aside 1.00.
-    func spareChange(for amount: Double) -> Double {
-        guard amount > 0 else { return 0 }
+    /// Amount set aside with an expense: the round-up to the next whole unit, times the multiplier
+    /// (13.20 at x2 → 1.60). A whole amount rounds up a full unit (9.00 at x2 → 2.00).
+    func spareChange(for amount: Double, multiplier: Int = 1) -> Double {
         let cents = Int((amount * 100).rounded())
         guard cents > 0 else { return 0 }
-        let remainder = cents % 100
-        if remainder == 0 { return 1 }
-        return Double(100 - remainder) / 100
+        return Double((100 - cents % 100) * multiplier) / 100
+    }
+
+    func updateSpareChange(accountID: UUID?, multiplier: Int) {
+        settings.spareChangeAccountID = accountID
+        settings.spareChangeMultiplier = multiplier
+        saveSettings()
     }
 
     func addEntry(
@@ -222,7 +226,9 @@ final class LedgerStore {
         guard !category.isEmpty else { return }
         let day = startOfDay(date)
         let normalizedNote = normalized(note)
-        let spare = kind == .expense ? spareChange(for: amount) : 0
+        let spare =
+            kind == .expense
+            ? spareChange(for: amount, multiplier: settings.spareChangeMultiplier) : 0
         let received =
             spareChangeAccountID.map { convertedTransferAmount(spare, from: accountID, to: $0) } ?? 0
         let canSaveSpareChange =
@@ -231,7 +237,8 @@ final class LedgerStore {
         if canSaveSpareChange {
             execute("BEGIN IMMEDIATE TRANSACTION")
         }
-        _ = insertCategoryIfNeeded(category, icon: .tag, color: .blue)
+        _ = insertCategoryIfNeeded(
+            category, icon: .suggested(for: category), color: nextAvailableCategoryColor)
         let spareChangeTransferID: UUID?
         if canSaveSpareChange, let spareChangeAccountID {
             let spareNote =
@@ -430,6 +437,14 @@ final class LedgerStore {
         let usedColors = Set(accounts.map(\.color))
         return AccountColor.allCases.first(where: { !usedColors.contains($0) })
             ?? AccountColor.allCases[accounts.count % AccountColor.allCases.count]
+    }
+
+    var nextAvailableCategoryColor: CategoryColor {
+        // Red is kept for negative balances, so it is never picked automatically.
+        let choices = CategoryColor.allCases.filter { $0.rawValue != "red" }
+        let usedColors = Set(categories.map(\.color))
+        return choices.first(where: { !usedColors.contains($0) })
+            ?? choices[categories.count % choices.count]
     }
 
     func formattedDate(_ date: Date) -> String {
@@ -837,6 +852,17 @@ final class LedgerStore {
         execute(
             "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
             bindings: [.text("ownerName"), .text(settings.ownerName)])
+        execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+            bindings: [
+                .text("spareChangeAccountID"),
+                .text(settings.spareChangeAccountID?.uuidString ?? ""),
+            ])
+        execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+            bindings: [
+                .text("spareChangeMultiplier"), .text(String(settings.spareChangeMultiplier)),
+            ])
     }
 
     func insertCategoryIfNeeded(
@@ -848,6 +874,25 @@ final class LedgerStore {
             bindings: [.text(name), .text(icon.rawValue), .text(color.rawValue)]
         )
         return sqlite3_changes(database) > 0
+    }
+
+    /// Runs once per database: categories still on the old default look (a blue tag) get an
+    /// icon guessed from their name and a colour of their own. Customised ones are left alone.
+    func restyleDefaultCategoriesOnce() {
+        let done = query("SELECT 1 FROM settings WHERE key = 'categoriesRestyled'") { _ in true }
+        guard done.isEmpty else { return }
+        let choices = CategoryColor.allCases.filter { $0.rawValue != "red" }
+        let defaults = categories.filter { $0.icon == .tag && $0.color == .blue }
+        for (index, category) in defaults.enumerated() {
+            execute(
+                "UPDATE categories SET icon = ?, color = ? WHERE name = ?",
+                bindings: [
+                    .text(CategoryIcon.suggested(for: category.name).rawValue),
+                    .text(choices[index % choices.count].rawValue), .text(category.name),
+                ])
+        }
+        execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('categoriesRestyled', '1')")
+        categories = loadCategories()
     }
 
     func normalized(_ text: String) -> String {
@@ -1035,7 +1080,9 @@ final class LedgerStore {
             autoLockMinutes: Int(values["autoLockMinutes"] ?? "")
                 ?? AppSettings.default.autoLockMinutes,
             ownerUsername: values["ownerUsername"] ?? "",
-            ownerName: values["ownerName"] ?? ""
+            ownerName: values["ownerName"] ?? "",
+            spareChangeAccountID: UUID(uuidString: values["spareChangeAccountID"] ?? ""),
+            spareChangeMultiplier: Int(values["spareChangeMultiplier"] ?? "") ?? 1
         )
     }
 
@@ -1050,6 +1097,8 @@ final class LedgerStore {
             "autoLockMinutes": String(settings.autoLockMinutes),
             "ownerUsername": settings.ownerUsername,
             "ownerName": settings.ownerName,
+            "spareChangeAccountID": settings.spareChangeAccountID?.uuidString ?? "",
+            "spareChangeMultiplier": String(settings.spareChangeMultiplier),
         ]
     }
 }

@@ -21,6 +21,53 @@ struct SettingsView: View {
 
     private let lockOptions = [0, 1, 5, 15, 30]
 
+    private var spareChangeAccountID: UUID? {
+        store.settings.spareChangeAccountID.flatMap { id in
+            store.accounts.contains { $0.id == id } ? id : nil
+        }
+    }
+
+    private var spareChangeSection: some View {
+        Section("Spare change") {
+            Picker(
+                "Round up into",
+                selection: Binding(
+                    get: { spareChangeAccountID },
+                    set: {
+                        store.updateSpareChange(
+                            accountID: $0, multiplier: store.settings.spareChangeMultiplier)
+                    }
+                )
+            ) {
+                Text("Off").tag(UUID?.none)
+                ForEach(
+                    store.includingSelection(
+                        spareChangeAccountID,
+                        in: store.openAccounts.filter { $0.type == .savings })
+                ) { account in
+                    Text(account.name).tag(Optional(account.id))
+                }
+            }
+            if spareChangeAccountID != nil {
+                Picker(
+                    "Multiplier",
+                    selection: Binding(
+                        get: { store.settings.spareChangeMultiplier },
+                        set: { store.updateSpareChange(accountID: spareChangeAccountID, multiplier: $0) }
+                    )
+                ) {
+                    ForEach(AppSettings.spareChangeMultipliers, id: \.self) { multiplier in
+                        Text("x\(multiplier)").tag(multiplier)
+                    }
+                }
+            }
+            Text(
+                "New expenses round up to the next whole amount and save the difference, times the multiplier. A 3.75 expense at x2 saves 0.50, and a 9.00 one saves 2.00. You can turn it off on any expense, and changes here leave past expenses alone. The Ledger shows it on the expense instead of as a transfer."
+            )
+            .formHint()
+        }
+    }
+
     var body: some View {
         Form {
             Section("Display") {
@@ -53,7 +100,7 @@ struct SettingsView: View {
                         set: { store.updateTheme($0) }
                     )
                 ) {
-                    ForEach(AppTheme.allCases) { theme in
+                    ForEach(AppTheme.allCases.filter { $0 != .glass || DS.supportsGlass }) { theme in
                         Text(theme.rawValue).tag(theme)
                     }
                 }
@@ -69,6 +116,8 @@ struct SettingsView: View {
                     }
                 }
             }
+
+            spareChangeSection
 
             if !store.foreignCurrencies.isEmpty {
                 Section("Exchange rates") {
@@ -189,7 +238,7 @@ struct SettingsView: View {
         .navigationTitle("Settings")
         .safeAreaInset(edge: .top, spacing: 0) {
             PageHeader(title: "Settings")
-                .background(DS.Palette.background)
+                .pageHeaderBackground()
         }
         .sheet(
             isPresented: Binding(
@@ -330,12 +379,24 @@ struct AddCategorySheet: View {
     @FocusState private var isNameFocused: Bool
     @State private var name = ""
     @State private var icon: CategoryIcon = .tag
-    @State private var color: CategoryColor = .blue
+    @State private var suggestedIcon: CategoryIcon = .tag
+    @State private var color: CategoryColor
+
+    init(store: LedgerStore) {
+        self.store = store
+        _color = State(initialValue: store.nextAvailableCategoryColor)
+    }
 
     var body: some View {
         Form {
             TextField("Name", text: $name)
                 .focused($isNameFocused)
+                // The icon follows the name until the user picks one of their own.
+                .onChange(of: name) {
+                    guard icon == suggestedIcon else { return }
+                    suggestedIcon = .suggested(for: name)
+                    icon = suggestedIcon
+                }
             Picker("Icon", selection: $icon) {
                 ForEach(CategoryIcon.allCases) { icon in
                     Label(icon.title, systemImage: Symbol.outline(icon.rawValue)).tag(icon)
@@ -447,7 +508,7 @@ struct CategoriesSheet: View {
                     Button("Edit \(category.name)", systemImage: "pencil") { editing = category }
                         .buttonStyle(.icon)
                         .help("Rename \(category.name) or change its icon and colour")
-                    if category.name.caseInsensitiveCompare("Uncategorized") != .orderedSame {
+                    if !category.isBuiltIn {
                         Button("Delete \(category.name)", systemImage: "trash", role: .destructive) {
                             pendingDeletion = category
                         }
@@ -458,7 +519,7 @@ struct CategoriesSheet: View {
                 .padding(.vertical, DS.Space.xxs)
                 .contextMenu {
                     Button("Edit", systemImage: "pencil") { editing = category }
-                    if category.name.caseInsensitiveCompare("Uncategorized") != .orderedSame {
+                    if !category.isBuiltIn {
                         Button("Delete", systemImage: "trash", role: .destructive) {
                             pendingDeletion = category
                         }

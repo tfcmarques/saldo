@@ -18,6 +18,18 @@ enum AccountType: String, CaseIterable, Identifiable {
     }
 }
 
+extension AccountType {
+    /// The icon a new account of this type starts with, so accounts differ at a glance.
+    var defaultIcon: AccountIcon {
+        switch self {
+        case .cash: .cash
+        case .checking: .bank
+        case .savings: .savings
+        case .investment: .investment
+        }
+    }
+}
+
 enum AccountIcon: String, CaseIterable, Identifiable {
     case wallet = "wallet.pass.fill"
     case bank = "building.columns.fill"
@@ -109,6 +121,27 @@ enum CategoryIcon: String, CaseIterable, Identifiable {
     case transfer = "arrow.left.arrow.right"
 
     var id: String { rawValue }
+
+    /// Best guess from a category's name, so new categories do not all look the same.
+    static func suggested(for name: String) -> CategoryIcon {
+        let name = name.lowercased()
+        let keywords: [(String, CategoryIcon)] = [
+            ("grocer", .groceries), ("supermarket", .groceries), ("eating", .food),
+            ("restaurant", .food), ("lunch", .food), ("dinner", .food), ("rent", .home),
+            ("hous", .home), ("mortgage", .home), ("electric", .utilities), ("water", .utilities),
+            ("internet", .utilities), ("salary", .income), ("wage", .income), ("gas", .fuel),
+            ("metro", .transit), ("train", .transit), ("gym", .fitness), ("petrol", .fuel),
+            ("doctor", .health), ("pharmacy", .health), ("cloth", .clothing), ("pet", .pets),
+            ("kid", .family), ("school", .education), ("holiday", .travel), ("trip", .travel),
+            ("donat", .charity), ("taxi", .transport), ("tax", .work), ("stream", .subscriptions),
+        ]
+        // Whole-word prefixes, so "Transport" is not matched by a keyword inside it.
+        let words = name.split(whereSeparator: { !$0.isLetter })
+        if let match = keywords.first(where: { key in words.contains { $0.hasPrefix(key.0) } }) {
+            return match.1
+        }
+        return allCases.first { $0 != .tag && name.contains($0.title.lowercased()) } ?? .tag
+    }
 
     var title: String {
         switch self {
@@ -362,6 +395,14 @@ struct LedgerCategory: Identifiable, Hashable {
     }
 }
 
+extension LedgerCategory {
+    /// Saldo files transfers, value updates and orphaned entries here, so the list never offers
+    /// to delete them.
+    var isBuiltIn: Bool {
+        ["uncategorized", "transfer", "gain", "loss"].contains(name.lowercased())
+    }
+}
+
 enum LedgerDateFormat: String, CaseIterable, Identifiable {
     case dayMonthYear = "dd-MM-yyyy"
     case monthDayYear = "MM/dd/yyyy"
@@ -417,6 +458,11 @@ struct AppSettings: Hashable {
     /// The Mac user Saldo was registered to on first launch.
     var ownerUsername: String = ""
     var ownerName: String = ""
+    /// Savings account that new expenses round up into by default. Nil turns spare change off.
+    var spareChangeAccountID: UUID?
+    var spareChangeMultiplier: Int = 1
+
+    static let spareChangeMultipliers = [1, 2, 3, 4, 5, 10]
 
     var isRegistered: Bool { !ownerUsername.isEmpty }
 

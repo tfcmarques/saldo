@@ -53,8 +53,13 @@ extension LedgerStore {
         guard TestDataMode.isActive, accounts.isEmpty, entries.isEmpty else { return }
         writesSuspended = true
         defer { writesSuspended = false }
+        assert(CategoryIcon.suggested(for: "Transport") == .transport)
+        assert(CategoryIcon.suggested(for: "Eating out") == .food)
+        assert(CategoryIcon.suggested(for: "Parents") == .tag)
+        // Test data skips the welcome screen, which is where the owner is normally registered.
+        if !settings.isRegistered { registerCurrentUser() }
 
-        addAccount(name: "Wallet", type: .cash, openingBalance: 120)
+        addAccount(name: "Wallet", type: .cash, openingBalance: 650)
         addAccount(name: "Everyday", type: .checking, openingBalance: 2_400)
         addAccount(name: "Rainy day", type: .savings, openingBalance: 5_000)
         addAccount(name: "Index fund", type: .investment, openingBalance: 8_000)
@@ -80,7 +85,7 @@ extension LedgerStore {
             addEntry(
                 kind: .expense, category: category, note: note,
                 amount: amount + Double(offset % 7), date: day(offset),
-                accountID: offset % 6 == 0 ? wallet.id : everyday.id,
+                accountID: offset % 12 == 0 ? wallet.id : everyday.id,
                 spareChangeAccountID: offset % 10 == 0 ? savings.id : nil)
         }
         for month in 0..<4 {
@@ -118,11 +123,52 @@ extension LedgerStore {
     /// then quits. Draws the window itself, so it needs no Screen Recording permission.
     @MainActor
     enum UISnapshots {
+        private static var hasStarted = false
+
         static func runIfRequested(router: AppRouter, store: LedgerStore) {
-            guard TestDataMode.isActive,
+            let environment = ProcessInfo.processInfo.environment
+            // `SALDO_TEST_THEME=Glass` opens test data in that theme, for trying it by hand.
+            if TestDataMode.isActive, !hasStarted,
+                let theme = environment["SALDO_TEST_THEME"].flatMap(AppTheme.init(rawValue:))
+            {
+                hasStarted = true
+                store.updateTheme(theme)
+                // `SALDO_TEST_CLICK=80,152` then clicks that point (from the window's top
+                // left), prints the section that ends up selected, and quits.
+                let point = (environment["SALDO_TEST_CLICK"] ?? "").split(separator: ",")
+                    .compactMap { Double($0) }
+                if point.count == 2 {
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(3))
+                        guard
+                            let window = NSApp.windows.first(where: {
+                                $0.isVisible && $0.canBecomeMain
+                            })
+                        else { return }
+                        let location = NSPoint(x: point[0], y: window.frame.height - point[1])
+                        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                            if let event = NSEvent.mouseEvent(
+                                with: type, location: location, modifierFlags: [],
+                                timestamp: ProcessInfo.processInfo.systemUptime,
+                                windowNumber: window.windowNumber, context: nil,
+                                eventNumber: 0, clickCount: 1, pressure: 1)
+                            {
+                                window.sendEvent(event)
+                            }
+                            try? await Task.sleep(for: .milliseconds(100))
+                        }
+                        try? await Task.sleep(for: .seconds(1))
+                        print("selected:", router.selection.rawValue)
+                        NSApp.terminate(nil)
+                    }
+                }
+            }
+            // A theme or text size change rebuilds the window and calls this again.
+            guard !hasStarted, TestDataMode.isActive,
                 let path = ProcessInfo.processInfo.environment["SALDO_SNAPSHOT_DIR"]
             else { return }
             let folder = URL(fileURLWithPath: path, isDirectory: true)
+            hasStarted = true
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(3))
                 guard let window = NSApp.windows.first(where: { $0.isVisible && $0.canBecomeMain })
@@ -149,8 +195,26 @@ extension LedgerStore {
                         }
                     }
                 }
+                // The Ambient and Glass themes, dark then light.
+                for theme in [AppTheme.ambient, .glass] {
+                    store.updateTheme(theme)
+                    for (name, appearance) in [("dark", NSAppearance.Name.darkAqua), ("light", .aqua)] {
+                        NSApp.appearance = NSAppearance(named: appearance)
+                        for section in AppSection.allCases {
+                            router.selection = section
+                            NSApp.activate(ignoringOtherApps: true)
+                            window.orderFrontRegardless()
+                            try? await Task.sleep(for: .seconds(1))
+                            save(
+                                window,
+                                to: folder.appendingPathComponent(
+                                    "\(section.rawValue)-\(theme.rawValue)-\(name).png"))
+                        }
+                    }
+                }
+                store.updateTheme(.system)
+                try? await Task.sleep(for: .seconds(1))
                 // The same page at the Large text size, then back to Standard.
-                NSApp.appearance = NSAppearance(named: .aqua)
                 store.updateFontSize(.large)
                 router.selection = .ledger
                 try? await Task.sleep(for: .seconds(1.5))
@@ -159,13 +223,28 @@ extension LedgerStore {
                 try? await Task.sleep(for: .seconds(1))
                 save(window, to: folder.appendingPathComponent("Ledger-standard.png"))
                 router.selection = .ledger
-                router.sheet = .newEntry(.expense)
-                try? await Task.sleep(for: .seconds(1.2))
-                if let sheet = window.attachedSheet {
-                    save(sheet, to: folder.appendingPathComponent("NewEntry.png"))
+                // Every sheet, so forms can be reviewed without clicking through the app.
+                var sheets: [(String, AppSheet)] = [
+                    ("NewEntry", .newEntry(.expense)), ("NewScheduledPayment", .newScheduledPayment),
+                    ("NewTransfer", .newTransfer), ("NewAccount", .newAccount),
+                    ("UpdateValue", .reconcileAccount(store.openAccounts.first)),
+                    ("NewDebt", .newDebt), ("Categories", .categories), ("NewBill", .newBill),
+                ]
+                if let entry = store.entries.first(where: { !$0.isTransfer }) {
+                    sheets.append(("EditEntry", .editEntry(entry)))
                 }
-                router.sheet = nil
-                try? await Task.sleep(for: .seconds(0.5))
+                if let debt = store.debts.first {
+                    sheets += [("DebtDetail", .debtDetail(debt.id)), ("PayDebt", .payDebt(debt))]
+                }
+                for (name, sheet) in sheets {
+                    router.sheet = sheet
+                    try? await Task.sleep(for: .seconds(1.2))
+                    if let attached = window.attachedSheet {
+                        save(attached, to: folder.appendingPathComponent("\(name).png"))
+                    }
+                    router.sheet = nil
+                    try? await Task.sleep(for: .seconds(0.8))
+                }
                 NSApp.terminate(nil)
             }
         }

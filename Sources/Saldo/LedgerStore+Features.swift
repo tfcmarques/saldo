@@ -150,7 +150,9 @@ extension LedgerStore {
         guard !category.isEmpty else { return }
         let day = startOfDay(date)
         let normalizedNote = normalized(note)
-        let spare = kind == .expense ? spareChange(for: amount) : 0
+        let spare =
+            kind == .expense
+            ? spareChange(for: amount, multiplier: spareChangeMultiplier(for: entry)) : 0
         let received =
             spareChangeAccountID.map { convertedTransferAmount(spare, from: accountID, to: $0) } ?? 0
         let wantsSpareChange =
@@ -159,7 +161,8 @@ extension LedgerStore {
         let existingTransferID = spareChangeLegs(for: entry)?.source.transferID
 
         execute("BEGIN IMMEDIATE TRANSACTION")
-        _ = insertCategoryIfNeeded(category, icon: .tag, color: .blue)
+        _ = insertCategoryIfNeeded(
+            category, icon: .suggested(for: category), color: nextAvailableCategoryColor)
         let linkedTransferID: UUID?
         if wantsSpareChange, let spareChangeAccountID {
             let spareNote =
@@ -235,6 +238,22 @@ extension LedgerStore {
             })
         else { return nil }
         return (source, destination)
+    }
+
+    /// The multiplier an expense was saved with, so a later settings change leaves it alone.
+    /// New expenses use the current setting.
+    func spareChangeMultiplier(for entry: LedgerEntry?) -> Int {
+        guard let entry, let saved = spareChangeLegs(for: entry)?.source.amount else {
+            return settings.spareChangeMultiplier
+        }
+        let base = spareChange(for: entry.amount)
+        guard base > 0 else { return settings.spareChangeMultiplier }
+        return max(Int((saved / base).rounded()), 1)
+    }
+
+    /// Transfers that hold spare change. The Ledger folds them into their expense.
+    var spareChangeTransferIDs: Set<UUID> {
+        Set(entries.compactMap(\.spareChangeTransferID))
     }
 
     private func updateSpareChangeTransfer(
