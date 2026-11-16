@@ -122,8 +122,9 @@ struct DebtDetail: View {
 
     private var progress: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ProgressView(value: min(paid, debt.principal), total: max(debt.principal, 0.01))
-                .tint(remaining > 0.004 ? debt.color.color : .green)
+            ProgressBar(
+                value: paid, total: debt.principal,
+                tint: remaining > 0.004 ? debt.color.color : DS.Palette.success)
             Text(
                 "\(paid.formatted(.currency(code: code))) paid of \(debt.principal.formatted(.currency(code: code)))"
             )

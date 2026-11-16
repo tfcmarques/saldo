@@ -91,21 +91,32 @@ struct AppRootView: View {
     let appLock: AppLock
     @Environment(AppRouter.self) private var router
     @Environment(\.undoManager) private var undoManager
+    @State private var windowSize = CGSize.zero
 
     var body: some View {
         // The type scale reads this; AppNavigationView's .id rebuilds the pages when it changes.
         let _ = DS.Typeface.scale = store.settings.fontSize.scale
+        let theme = store.settings.theme
+        let _ = (DS.isAmbient, DS.isGlass) = (theme == .ambient, theme == .glass && DS.supportsGlass)
         Group {
             if appLock.isUnlocked {
                 AppNavigationView(store: store, appLock: appLock)
-                    // Settings live in here, so changing Text size rebuilds every page.
-                    .id(store.settings.fontSize)
+                    // Settings live in here, so changing Text size or theme rebuilds every page.
+                    .id("\(store.settings.fontSize.rawValue) \(DS.isAmbient) \(DS.isGlass)")
             } else if !store.hasExistingDatabase && !store.settings.isRegistered {
                 WelcomeScreen(store: store, appLock: appLock)
             } else {
                 LockScreen(store: store, appLock: appLock)
             }
         }
+        .background {
+            PageBackdrop()
+                // It reads DS.isGlass, which SwiftUI does not track; redraw when it flips.
+                .id(DS.isGlass)
+                .ignoresSafeArea()
+                .onGeometryChange(for: CGSize.self) { $0.size } action: { windowSize = $0 }
+        }
+        .environment(\.windowSize, windowSize)
         .onAppear {
             WindowSizing.fillScreen()
             appLock.ownerUsername = store.settings.ownerUsername
@@ -172,10 +183,12 @@ struct AppNavigationView: View {
         @Bindable var router = router
         HStack(spacing: 0) {
             Sidebar(store: store, appLock: appLock)
-            Rectangle()
-                .fill(DS.Palette.border)
-                .frame(width: 1)
-                .ignoresSafeArea()
+            if !DS.isGlass {
+                Rectangle()
+                    .fill(DS.Palette.border)
+                    .frame(width: 1)
+                    .ignoresSafeArea()
+            }
             detail
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 // Page headers set their own top inset, the same in a window and in full screen.
@@ -230,7 +243,8 @@ struct AppNavigationView: View {
 
 private func themeOverride(for theme: AppTheme) -> ColorScheme? {
     switch theme {
-    case .system: nil
+    case .system, .ambient: nil
+    case .glass: .dark
     case .light: .light
     case .dark: .dark
     }

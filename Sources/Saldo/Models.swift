@@ -382,6 +382,10 @@ enum AppTheme: String, CaseIterable, Identifiable {
     case system = "System"
     case light = "Light"
     case dark = "Dark"
+    /// Follows the system's light or dark appearance with the Ambient tokens.
+    case ambient = "Ambient"
+    /// Frosted panels on green and black with Liquid Glass controls (macOS 26). Always dark.
+    case glass = "Glass"
 
     var id: String { rawValue }
 }

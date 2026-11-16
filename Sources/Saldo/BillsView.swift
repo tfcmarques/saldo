@@ -55,7 +55,7 @@ struct BillsView: View {
                     .buttonStyle(.pill(.primary))
                     .help("Add a monthly bill")
             }
-            .background(DS.Palette.background)
+            .pageHeaderBackground()
         }
         .confirmationDialog(
             billPendingDeletion.map { "Delete \($0.name)?" } ?? "Delete this bill?",
@@ -95,7 +95,7 @@ struct BillsView: View {
 
             VStack(alignment: .leading, spacing: DS.Space.xs) {
                 HStack {
-                    Text("\(handled.count) of \(store.bills.count) bills handled")
+                    Text("\(handled.count) of \(store.bills.count) bills paid or skipped")
                         .font(DS.Typeface.caption.weight(.semibold))
                         .foregroundStyle(DS.Palette.textSecondary)
                     Spacer()
@@ -106,8 +106,7 @@ struct BillsView: View {
                     .monospacedDigit()
                     .foregroundStyle(DS.Palette.textMuted)
                 }
-                ProgressView(value: paidAmount, total: max(monthlyTotal, 0.01))
-                    .tint(DS.Palette.success)
+                ProgressBar(value: paidAmount, total: monthlyTotal)
             }
         }
         .surface()

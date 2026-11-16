@@ -5,23 +5,35 @@ import SwiftUI
 
 /// Saldo's design tokens. Colours, type, spacing and radii come from here, not from views.
 enum DS {
+    /// True while the Ambient theme is on. AppRootView sets it and rebuilds the window.
+    nonisolated(unsafe) static var isAmbient = false
+    /// True while the Glass theme is on: frosted panels on green and black, with a Liquid
+    /// Glass sidebar and controls. Only ever true where `supportsGlass` is.
+    nonisolated(unsafe) static var isGlass = false
+
+    static var supportsGlass: Bool {
+        if #available(macOS 26, *) { true } else { false }
+    }
+
+    /// Each token has a standard pair, an Ambient pair (light, dark) and a Glass value.
+    /// Glass is green on black and always dark.
     enum Palette {
-        static let background = Color(light: 0xFFFFFF, dark: 0x000000)
-        static let surface = Color(light: 0xF4F4F4, dark: 0x16181A)
-        static let surfaceSubtle = Color(light: 0xF7F7F7, dark: 0x1C1E21)
-        static let surfaceRaised = Color(light: 0xFFFFFF, dark: 0x242629)
-        static let border = Color(light: 0xE2E2E7, dark: 0x2A2D31)
-        static let textPrimary = Color(light: 0x191C1F, dark: 0xFFFFFF)
-        static let textSecondary = Color(light: 0x505A63, dark: 0xA0A4AA)
-        static let textMuted = Color(light: 0x8D969E, dark: 0x70767D)
-        static let accent = Color(light: 0x494FDF, dark: 0x6E73F2)
-        static let accentHover = Color(light: 0x4F55F1, dark: 0x8287F5)
-        static let success = Color(light: 0x00A87E, dark: 0x1FC497)
-        static let warning = Color(light: 0xEC7E00, dark: 0xFF9A2E)
-        static let danger = Color(light: 0xE23B4A, dark: 0xFF5C69)
+        static let background = Color(light: 0xFFFFFF, dark: 0x000000, ambient: (0xF1F2F3, 0x080910), glass: 0x050A08)
+        static let surface = Color(light: 0xF4F4F4, dark: 0x16181A, ambient: (0xFFFFFF, 0x14151D), glass: 0x0E1512)
+        static let surfaceSubtle = Color(light: 0xF7F7F7, dark: 0x1C1E21, ambient: (0xE9EAEC, 0x0D0E15), glass: 0x0A100D)
+        static let surfaceRaised = Color(light: 0xFFFFFF, dark: 0x242629, ambient: (0xFFFFFF, 0x20212B), glass: 0x1A2620)
+        static let border = Color(light: 0xE2E2E7, dark: 0x2A2D31, ambient: (0xDFE0E2, 0x23242D), glass: 0x22302A)
+        static let textPrimary = Color(light: 0x191C1F, dark: 0xFFFFFF, ambient: (0x17181D, 0xF7F7F8), glass: 0xF2F7F4)
+        static let textSecondary = Color(light: 0x505A63, dark: 0xA0A4AA, ambient: (0x5E5F6A, 0x92939D), glass: 0xA3B0A9)
+        static let textMuted = Color(light: 0x8D969E, dark: 0x70767D, ambient: (0x858690, 0x6C6D78), glass: 0x74827B)
+        static let accent = Color(light: 0x494FDF, dark: 0x6E73F2, ambient: (0x2878FF, 0x2878FF), glass: 0x2FBF83)
+        static let accentHover = Color(light: 0x4F55F1, dark: 0x8287F5, ambient: (0x3154F5, 0x4A8DFF), glass: 0x45D398)
+        static let success = Color(light: 0x00A87E, dark: 0x1FC497, ambient: (0x00A982, 0x00CFA5), glass: 0x4ADE9F)
+        static let warning = Color(light: 0xEC7E00, dark: 0xFF9A2E, ambient: (0xD97706, 0xFFA63D), glass: 0xE0A84A)
+        static let danger = Color(light: 0xE23B4A, dark: 0xFF5C69, ambient: (0xE8421A, 0xFF572B), glass: 0xEB7563)
         /// Primary buttons: dark on light, light on dark.
-        static let inverse = Color(light: 0x191C1F, dark: 0xFFFFFF)
-        static let onInverse = Color(light: 0xFFFFFF, dark: 0x191C1F)
+        static let inverse = Color(light: 0x191C1F, dark: 0xFFFFFF, ambient: (0x17181D, 0xF7F7F8), glass: 0xF2F7F4)
+        static let onInverse = Color(light: 0xFFFFFF, dark: 0x191C1F, ambient: (0xFFFFFF, 0x17181D), glass: 0x07100C)
     }
 
     /// 4-point scale.
@@ -42,10 +54,10 @@ enum DS {
 
     enum Radius {
         /// Tooltips and other small floating labels.
-        static let small: CGFloat = 8
-        static let control: CGFloat = 12
-        static let card: CGFloat = 16
-        static let large: CGFloat = 20
+        static var small: CGFloat { DS.isAmbient ? 10 : 8 }
+        static var control: CGFloat { DS.isAmbient ? 16 : 12 }
+        static var card: CGFloat { DS.isAmbient ? 28 : DS.isGlass ? 24 : 16 }
+        static var large: CGFloat { DS.isAmbient ? 36 : 20 }
     }
 
     /// Sizes are macOS points at the Standard text size. The Text size setting multiplies
@@ -56,12 +68,20 @@ enum DS {
 
         static func size(_ points: CGFloat) -> CGFloat { (points * scale).rounded() }
 
-        static var display: Font { .system(size: size(40), weight: .semibold) }
-        static var pageTitle: Font { .system(size: size(26), weight: .semibold) }
-        static var figure: Font { .system(size: size(26), weight: .semibold) }
-        static var title1: Font { .system(size: size(22), weight: .semibold) }
-        static var title2: Font { .system(size: size(17), weight: .semibold) }
-        static var title3: Font { .system(size: size(15), weight: .semibold) }
+        /// Ambient keeps large figures light and headings medium.
+        private static var strong: Font.Weight { DS.isAmbient ? .medium : .semibold }
+        private static var figureWeight: Font.Weight { DS.isAmbient ? .regular : .semibold }
+
+        static var display: Font {
+            .system(size: size(DS.isAmbient ? 52 : 40), weight: figureWeight)
+        }
+        static var pageTitle: Font { .system(size: size(26), weight: strong) }
+        static var figure: Font {
+            .system(size: size(DS.isAmbient ? 30 : 26), weight: figureWeight)
+        }
+        static var title1: Font { .system(size: size(22), weight: strong) }
+        static var title2: Font { .system(size: size(17), weight: strong) }
+        static var title3: Font { .system(size: size(15), weight: strong) }
         static var body: Font { .system(size: size(13)) }
         static var bodyStrong: Font { .system(size: size(13), weight: .medium) }
         static var small: Font { .system(size: size(12)) }
@@ -75,12 +95,18 @@ enum DS {
 }
 
 extension Color {
-    /// A colour that follows the window's light or dark appearance.
-    init(light: UInt32, dark: UInt32) {
+    /// A colour that follows the window's light or dark appearance, and the Ambient theme.
+    init(
+        light: UInt32, dark: UInt32, ambient: (light: UInt32, dark: UInt32)? = nil,
+        glass: UInt32? = nil
+    ) {
         self.init(
             nsColor: NSColor(name: nil) { appearance in
                 let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-                let hex = isDark ? dark : light
+                var pair = (light: light, dark: dark)
+                if DS.isAmbient, let ambient { pair = ambient }
+                if DS.isGlass, let glass { pair = (glass, glass) }
+                let hex = isDark ? pair.dark : pair.light
                 return NSColor(
                     srgbRed: CGFloat((hex >> 16) & 0xFF) / 255,
                     green: CGFloat((hex >> 8) & 0xFF) / 255,
@@ -88,13 +114,131 @@ extension Color {
                     alpha: 1)
             })
     }
+
+    init(hex: UInt32) { self.init(light: hex, dark: hex) }
 }
 
 // MARK: - Surfaces
 
+/// A card's fill. The Ambient theme adds coloured light, a hairline edge and a soft shadow.
+struct CardBackground: View {
+    /// The light's colour: the main colour of what the card shows. Nil is a faint silver.
+    var glow: Color?
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
+        if DS.isAmbient {
+            let dark = scheme == .dark
+            let strength = (dark ? 1 : 0.6) * (glow == nil ? 0.3 : 1)
+            let primary = glow ?? DS.Palette.textSecondary
+            let secondary = primary
+            shape.fill(DS.Palette.surface)
+                .overlay {
+                    ZStack {
+                        EllipticalGradient(
+                            colors: [primary.opacity(0.2 * strength), primary.opacity(0)],
+                            center: .topTrailing, endRadiusFraction: 0.8)
+                        EllipticalGradient(
+                            colors: [secondary.opacity(0.09 * strength), secondary.opacity(0)],
+                            center: UnitPoint(x: 0.1, y: 1.15), endRadiusFraction: 0.6)
+                    }
+                    .clipShape(shape)
+                }
+                .overlay(
+                    shape.strokeBorder(
+                        LinearGradient(
+                            colors: [
+                                DS.Palette.textPrimary.opacity(0.16),
+                                DS.Palette.textPrimary.opacity(0.05),
+                            ], startPoint: .top, endPoint: .bottom))
+                )
+                .shadow(color: .black.opacity(dark ? 0.35 : 0.07), radius: 16, y: 8)
+        } else if DS.isGlass {
+            // A frosted panel: faint white fill, a lit top edge and a soft shadow. The
+            // backdrop is smooth light, so a real blur would look the same and cost more.
+            shape
+                .fill(
+                    LinearGradient(
+                        colors: [.white.opacity(0.1), .white.opacity(0.035)],
+                        startPoint: .topLeading, endPoint: .bottomTrailing)
+                )
+                .overlay(
+                    shape.strokeBorder(
+                        LinearGradient(
+                            colors: [.white.opacity(0.28), .white.opacity(0.04)],
+                            startPoint: .topLeading, endPoint: .bottomTrailing))
+                )
+                .shadow(color: .black.opacity(0.22), radius: 18, y: 10)
+        } else {
+            shape.fill(DS.Palette.surface)
+        }
+    }
+}
+
+private struct WindowSizeKey: EnvironmentKey {
+    static let defaultValue = CGSize.zero
+}
+
+extension EnvironmentValues {
+    /// Size of the whole window, measured by AppRootView on the backdrop.
+    var windowSize: CGSize {
+        get { self[WindowSizeKey.self] }
+        set { self[WindowSizeKey.self] = newValue }
+    }
+}
+
+private struct PageHeaderBackground: ViewModifier {
+    @Environment(\.windowSize) private var windowSize
+
+    func body(content: Content) -> some View {
+        if DS.isGlass {
+            // The window's backdrop again, cut to the header, so no seam shows. The header
+            // sits in the window's top right corner.
+            content.background {
+                Color.clear
+                    .overlay(alignment: .topTrailing) {
+                        // Clipping does not clip clicks: without this the window-sized
+                        // backdrop swallows every click in the window.
+                        PageBackdrop()
+                            .frame(width: windowSize.width, height: windowSize.height)
+                            .allowsHitTesting(false)
+                    }
+                    .clipped()
+            }
+        } else {
+            content.background(DS.Palette.background)
+        }
+    }
+}
+
+/// What sits behind the window. The Glass theme adds soft green light for the panels and
+/// glass above it to pick up.
+struct PageBackdrop: View {
+    var body: some View {
+        if DS.isGlass {
+            ZStack {
+                DS.Palette.background
+                light(0.34, radius: 0.8, at: UnitPoint(x: 0.1, y: 0))
+                light(0.26, radius: 0.7, at: UnitPoint(x: 1, y: 0.85))
+                light(0.12, radius: 0.45, at: UnitPoint(x: 0.55, y: 0.45))
+            }
+        } else {
+            DS.Palette.background
+        }
+    }
+
+    private func light(_ opacity: Double, radius: Double, at center: UnitPoint) -> some View {
+        EllipticalGradient(
+            colors: [DS.Palette.accent.opacity(opacity), DS.Palette.accent.opacity(0)],
+            center: center, endRadiusFraction: radius)
+    }
+}
+
 private struct Surface: ViewModifier {
     var padding: CGFloat
     var fillHeight: Bool
+    var glow: Color?
 
     func body(content: Content) -> some View {
         content
@@ -103,21 +247,37 @@ private struct Surface: ViewModifier {
                 maxWidth: .infinity, maxHeight: fillHeight ? .infinity : nil,
                 alignment: .topLeading
             )
-            .background(
-                DS.Palette.surface,
-                in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+            .background(CardBackground(glow: glow))
     }
 }
 
 extension View {
-    /// A grouped area on the page background. No shadow, no border.
-    func surface(padding: CGFloat = DS.Space.l, fillHeight: Bool = false) -> some View {
-        modifier(Surface(padding: padding, fillHeight: fillHeight))
+    /// A grouped area on the page background. `glow` tints the card's light in the Ambient theme.
+    func surface(
+        padding: CGFloat = DS.Space.l, fillHeight: Bool = false, glow: Color? = nil
+    ) -> some View {
+        modifier(Surface(padding: padding, fillHeight: fillHeight, glow: glow))
     }
 
     /// Page background for a section's root view.
     func pageBackground() -> some View {
-        background(DS.Palette.background)
+        // Glass pages show the one backdrop AppRootView draws behind the whole window.
+        background { if !DS.isGlass { DS.Palette.background } }
+    }
+
+    /// A capsule control's fill: Liquid Glass in the Glass theme, otherwise a flat colour.
+    @ViewBuilder
+    func capsuleFill(_ color: Color, glassTint: Color? = nil, glass: Bool = true) -> some View {
+        if DS.isGlass, glass, #available(macOS 26, *) {
+            glassEffect(.regular.tint(glassTint).interactive(), in: .capsule)
+        } else {
+            background(color, in: Capsule())
+        }
+    }
+
+    /// Behind a pinned `PageHeader`, so scrolled content does not show through the title.
+    func pageHeaderBackground() -> some View {
+        modifier(PageHeaderBackground())
     }
 
     /// Explanation under a form field: small, secondary, never the main message.
@@ -127,7 +287,9 @@ extension View {
 
     /// Lists drawn on the page background instead of the system's grouped grey.
     func pageList() -> some View {
-        scrollContentBackground(.hidden).background(DS.Palette.background)
+        scrollContentBackground(.hidden).background {
+            if !DS.isGlass { DS.Palette.background }
+        }
     }
 }
 
@@ -158,7 +320,7 @@ struct PillButtonStyle: ButtonStyle {
                 .padding(.horizontal, compact ? DS.Space.s : DS.Space.m)
                 .padding(.vertical, compact ? 5 : DS.Space.xs)
                 .foregroundStyle(foreground)
-                .background(background, in: Capsule())
+                .capsuleFill(background, glassTint: glassTint, glass: kind != .tertiary)
                 .contentShape(Capsule())
                 .opacity(isEnabled ? 1 : 0.4)
                 .scaleEffect(configuration.isPressed ? 0.97 : 1)
@@ -170,9 +332,17 @@ struct PillButtonStyle: ButtonStyle {
         private var foreground: Color {
             switch kind {
             case .primary: DS.Palette.onInverse
-            case .accent: .white
+            case .accent: DS.isGlass ? DS.Palette.onInverse : .white
             case .secondary, .tertiary: DS.Palette.textPrimary
             case .destructive: DS.Palette.danger
+            }
+        }
+
+        private var glassTint: Color? {
+            switch kind {
+            case .primary, .accent: DS.Palette.accent
+            case .destructive: DS.Palette.danger.opacity(0.2)
+            case .secondary, .tertiary: nil
             }
         }
 
@@ -293,6 +463,40 @@ struct DetailLine: View {
     }
 }
 
+/// "Today", "Yesterday", then the weekday and date. The year only shows when it is not this one.
+func dayTitle(_ day: Date) -> String {
+    let calendar = Calendar.current
+    if calendar.isDateInToday(day) { return "Today" }
+    if calendar.isDateInYesterday(day) { return "Yesterday" }
+    let sameYear = calendar.isDate(day, equalTo: .now, toGranularity: .year)
+    return day.formatted(
+        sameYear
+            ? .dateTime.weekday(.wide).day().month(.wide)
+            : .dateTime.day().month(.wide).year())
+}
+
+/// Thin progress track. Unlike the system's bar it draws nothing at zero.
+struct ProgressBar: View {
+    let value: Double
+    let total: Double
+    var tint: Color = DS.Palette.success
+
+    private var fraction: Double { min(max(value / max(total, 0.01), 0), 1) }
+
+    var body: some View {
+        GeometryReader { geometry in
+            Capsule().fill(DS.Palette.border)
+                .overlay(alignment: .leading) {
+                    Capsule().fill(tint).frame(width: geometry.size.width * fraction)
+                }
+        }
+        .frame(height: 6)
+        .accessibilityElement()
+        .accessibilityLabel("Progress")
+        .accessibilityValue(fraction.formatted(.percent.precision(.fractionLength(0))))
+    }
+}
+
 /// Small grey heading above a group of rows.
 struct SectionLabel: View {
     let title: String
@@ -355,6 +559,9 @@ struct TransactionRow: View {
     let amount: Double
     let currencyCode: String
     var badge: StatusBadge?
+    var accessoryBadge: StatusBadge?
+    /// No sign or colour, for a transfer shown as one row: it neither adds nor removes money.
+    var neutralAmount = false
 
     var body: some View {
         HStack(spacing: DS.Space.s) {
@@ -368,8 +575,11 @@ struct TransactionRow: View {
             }
             Spacer(minLength: DS.Space.s)
             VStack(alignment: .trailing, spacing: 2) {
-                MoneyText(amount: amount, currencyCode: currencyCode, signed: true)
+                MoneyText(
+                    amount: neutralAmount ? abs(amount) : amount, currencyCode: currencyCode,
+                    signed: !neutralAmount)
                 if let badge { badge }
+                if let accessoryBadge { accessoryBadge }
             }
         }
         .padding(.vertical, DS.Space.xxs)
@@ -528,7 +738,7 @@ struct SearchField: View {
         .padding(.horizontal, DS.Space.s)
         .padding(.vertical, 6)
         .frame(width: 240)
-        .background(DS.Palette.textPrimary.opacity(0.06), in: Capsule())
+        .capsuleFill(DS.Palette.textPrimary.opacity(0.06))
         .overlay(
             Capsule().strokeBorder(
                 focus.wrappedValue ? DS.Palette.accent : .clear, lineWidth: 1.5)

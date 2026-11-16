@@ -45,15 +45,10 @@ struct Sidebar: View {
 
             HStack(spacing: DS.Space.xs) {
                 UserAvatar(name: store.settings.ownerName, size: 30)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(store.settings.ownerName)
-                        .font(DS.Typeface.caption.weight(.semibold))
-                        .foregroundStyle(DS.Palette.textPrimary)
-                        .lineLimit(1)
-                    Text("Registered Mac user")
-                        .font(DS.Typeface.micro)
-                        .foregroundStyle(DS.Palette.textMuted)
-                }
+                Text(store.settings.ownerName)
+                    .font(DS.Typeface.caption.weight(.semibold))
+                    .foregroundStyle(DS.Palette.textPrimary)
+                    .lineLimit(1)
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, DS.Space.xs)
@@ -62,7 +57,7 @@ struct Sidebar: View {
         .padding(.horizontal, DS.Space.s)
         .frame(width: 232)
         .frame(maxHeight: .infinity, alignment: .top)
-        .background(DS.Palette.surfaceSubtle)
+        .sidebarBackground()
         .ignoresSafeArea()
     }
 
@@ -119,5 +114,17 @@ private struct SidebarRow: View {
     private var background: Color {
         if isSelected { return DS.Palette.surfaceRaised }
         return DS.Palette.textPrimary.opacity(isHovered ? 0.05 : 0)
+    }
+}
+
+extension View {
+    /// Flat column normally; a floating Liquid Glass panel in the Glass theme.
+    @ViewBuilder
+    fileprivate func sidebarBackground() -> some View {
+        if DS.isGlass, #available(macOS 26, *) {
+            glassEffect(.regular, in: .rect(cornerRadius: 22)).padding(DS.Space.xs)
+        } else {
+            background(DS.Palette.surfaceSubtle)
+        }
     }
 }
