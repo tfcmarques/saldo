@@ -71,6 +71,8 @@ final class AppRouter {
     var sheet: AppSheet?
     /// Bumped by ⌘F; the ledger focuses its search field when it changes.
     var searchRequest = 0
+    /// Set before switching to the Ledger to open it filtered to one account.
+    var ledgerAccountID: UUID?
 }
 
 let supportedCurrencies = [

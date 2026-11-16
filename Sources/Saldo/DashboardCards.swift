@@ -2,8 +2,8 @@ import Charts
 import SwiftUI
 
 extension View {
-    func dashboardCard(fillHeight: Bool = false) -> some View {
-        surface(fillHeight: fillHeight)
+    func dashboardCard(fillHeight: Bool = false, glow: Color? = nil) -> some View {
+        surface(fillHeight: fillHeight, glow: glow)
     }
 }
 
@@ -133,7 +133,7 @@ struct CashFlowCard: View {
             Text("Six-month savings rate: \(rateText(sixMonthRate))")
                 .formHint()
         }
-        .dashboardCard(fillHeight: true)
+        .dashboardCard(fillHeight: true, glow: DS.Palette.success)
     }
 
     private func rateText(_ rate: Double?) -> String {
@@ -284,7 +284,7 @@ struct CategorySpendingCard: View {
                 .padding(DS.Space.s)
             }
         }
-        .dashboardCard(fillHeight: true)
+        .dashboardCard(fillHeight: true, glow: spending.first?.categoryColor?.color)
     }
 
     private func spendingHover(
@@ -391,7 +391,7 @@ struct ScheduledPaymentsCard: View {
                     }
                 }
             }
-            .dashboardCard()
+            .dashboardCard(glow: DS.Palette.warning)
         }
     }
 
@@ -496,18 +496,28 @@ private struct ScheduledPaymentRow: View {
 
 struct RecentActivityCard: View {
     let store: LedgerStore
+    @Environment(AppRouter.self) private var router
 
     var body: some View {
         let recent = store.recentEntries(limit: 5)
+        let paired = store.pairedTransferIDs
         VStack(alignment: .leading, spacing: 12) {
-            Text("Recent activity").font(DS.Typeface.title3)
+            HStack {
+                Text("Recent activity").font(DS.Typeface.title3)
+                Spacer()
+                Button("See all") { router.selection = .ledger }
+                    .buttonStyle(.pill(.tertiary, compact: true))
+                    .help("Open the Ledger (⌘2)")
+            }
             if recent.isEmpty {
                 Text("No entries yet.")
                     .font(DS.Typeface.small)
                     .foregroundStyle(DS.Palette.textSecondary)
             } else {
                 ForEach(recent) { entry in
-                    RecentRow(store: store, entry: entry)
+                    RecentRow(
+                        store: store, entry: entry,
+                        showsBothSides: entry.transferID.map(paired.contains) ?? false)
                 }
             }
             Spacer(minLength: 0)
@@ -516,9 +526,12 @@ struct RecentActivityCard: View {
     }
 }
 
+/// Same title and one-row transfers as the Ledger, so an entry reads the same in both places.
 private struct RecentRow: View {
     let store: LedgerStore
     let entry: LedgerEntry
+    let showsBothSides: Bool
+    @Environment(AppRouter.self) private var router
 
     private var account: Account? { store.accounts.first { $0.id == entry.accountID } }
     private var category: LedgerCategory? {
@@ -531,9 +544,19 @@ private struct RecentRow: View {
         TransactionRow(
             symbol: entry.isTransfer ? "arrow.left.arrow.right" : (category?.icon.rawValue ?? "tag"),
             tint: entry.isTransfer ? DS.Palette.textSecondary : (category?.color.color ?? DS.Palette.accent),
-            title: entry.note.isEmpty ? entry.category : entry.displayNote,
-            details: [account?.name ?? "Deleted account", store.formattedDate(entry.date)],
+            title: store.title(for: entry, bothSides: showsBothSides),
+            details: [
+                entry.displayNote, showsBothSides ? "" : account?.name ?? "Deleted account",
+                dayTitle(entry.date),
+            ],
             amount: store.signedAmount(entry),
-            currencyCode: store.currencyCode(forAccountID: entry.accountID))
+            currencyCode: store.currencyCode(forAccountID: entry.accountID),
+            neutralAmount: showsBothSides
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            router.sheet = entry.isTransfer ? .editTransfer(entry) : .editEntry(entry)
+        }
+        .help("Click to edit")
     }
 }

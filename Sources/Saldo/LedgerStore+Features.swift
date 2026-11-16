@@ -282,6 +282,58 @@ extension LedgerStore {
         return amount * rate(for: fromCode) / rate(for: toCode)
     }
 
+    /// Transfers with both sides present. A list covering every account shows each as one row.
+    var pairedTransferIDs: Set<UUID> {
+        func ids(_ kind: EntryKind) -> Set<UUID> {
+            Set(entries.filter { $0.kind == kind }.compactMap(\.transferID))
+        }
+        return ids(.expense).intersection(ids(.income))
+    }
+
+    /// The receiving side of a transfer that is shown as one row.
+    func isReceivingLeg(_ entry: LedgerEntry, paired: Set<UUID>) -> Bool {
+        entry.kind == .income && (entry.transferID.map(paired.contains) ?? false)
+    }
+
+    /// A row's title: the category, the debt paid, or the accounts a transfer moved between.
+    /// `bothSides` names both accounts, for a transfer shown as one row.
+    func title(for entry: LedgerEntry, bothSides: Bool = false) -> String {
+        if let debtID = entry.debtID, let debt = debts.first(where: { $0.id == debtID }) {
+            return debt.direction == .iOwe ? "Payment to \(debt.name)" : "Payment from \(debt.name)"
+        }
+        guard entry.isTransfer else { return entry.category }
+        func name(_ leg: LedgerEntry?) -> String? {
+            leg.flatMap { leg in accounts.first { $0.id == leg.accountID }?.name }
+        }
+        let legs = transferLegs(of: entry)
+        if bothSides, let from = name(legs?.source), let to = name(legs?.destination) {
+            return "\(from) to \(to)"
+        }
+        guard let other = name(entry.kind == .expense ? legs?.destination : legs?.source) else {
+            return "Transfer"
+        }
+        return entry.kind == .expense ? "Transfer to \(other)" : "Transfer from \(other)"
+    }
+
+    /// The accounts of the newest transfer the user made, so a new one starts from the same pair.
+    var lastTransferPair: (from: UUID, to: UUID)? {
+        let spareChange = spareChangeTransferIDs
+        let open = Set(openAccounts.map(\.id))
+        guard
+            let recent = entries.first(where: {
+                $0.transferID.map { !spareChange.contains($0) } ?? false
+            }),
+            let legs = transferLegs(of: recent),
+            open.contains(legs.source.accountID), open.contains(legs.destination.accountID)
+        else { return nil }
+        return (legs.source.accountID, legs.destination.accountID)
+    }
+
+    /// "Everyday (€1 200,00)", for pickers where the balance decides the choice.
+    func nameWithBalance(_ account: Account) -> String {
+        "\(account.name) (\(balance(for: account).formatted(.currency(code: currencyCode(for: account)))))"
+    }
+
     func transferLegs(of entry: LedgerEntry) -> (source: LedgerEntry, destination: LedgerEntry)? {
         guard let id = entry.transferID else { return nil }
         let legs = entries.filter { $0.transferID == id }

@@ -75,8 +75,14 @@ extension LedgerStore {
 
     func recentEntries(limit: Int = 8) -> [LedgerEntry] {
         let today = startOfDay(.now)
+        let spareChangeIDs = spareChangeTransferIDs
+        let paired = pairedTransferIDs
         return Array(
-            entries.filter { $0.date <= today }.sorted { $0.date > $1.date }.prefix(limit))
+            entries.filter {
+                $0.date <= today && !($0.transferID.map(spareChangeIDs.contains) ?? false)
+                    && !isReceivingLeg($0, paired: paired)
+            }
+            .sorted { $0.date > $1.date }.prefix(limit))
     }
 
     /// An income or expense dated after today. Payments are already reserved, refunds are already counted, and each posts on its date.

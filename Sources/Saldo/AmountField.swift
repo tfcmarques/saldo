@@ -48,7 +48,8 @@ struct AmountField: View {
             }
             .onAppear {
                 syncFromText()
-                if focusesOnAppear { isFocused = true }
+                // Next run loop: a field rebuilt inside an open sheet ignores focus set during onAppear.
+                if focusesOnAppear { DispatchQueue.main.async { isFocused = true } }
             }
             .onChange(of: text) { syncFromText() }
             .onChange(of: isFocused) { finishPlainNumber() }

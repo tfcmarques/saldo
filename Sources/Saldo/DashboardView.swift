@@ -119,12 +119,12 @@ struct DashboardView: View {
         let code = store.settings.currencyCode
         let firstName = store.settings.ownerFirstName
         let greeting = firstName.isEmpty ? "Welcome back" : "Welcome back, \(firstName)"
-        var changeText = change.formatted(.currency(code: code).sign(strategy: .always()))
+        // No sign: the arrow and the colour already say which way it moved.
+        var changeText = change.magnitude.formatted(.currency(code: code))
         if let percent {
-            changeText += " (\(percent.formatted(.percent.precision(.fractionLength(1)))))"
+            changeText += " (\(percent.magnitude.formatted(.percent.precision(.fractionLength(1)))))"
         }
-        return VStack(alignment: .leading, spacing: DS.Space.l) {
-            VStack(alignment: .leading, spacing: DS.Space.xs) {
+        let summary = VStack(alignment: .leading, spacing: DS.Space.xs) {
                 Text(greeting)
                     .font(DS.Typeface.small)
                     .foregroundStyle(DS.Palette.textSecondary)
@@ -142,7 +142,9 @@ struct DashboardView: View {
                     StatusBadge(
                         text: changeText,
                         systemImage: change >= 0 ? "arrow.up.right" : "arrow.down.right",
-                        tone: change >= 0 ? .success : .danger)
+                        tone: change >= 0 ? .success : .danger
+                    )
+                    .accessibilityLabel("\(change >= 0 ? "Up" : "Down") \(changeText)")
                     Text(timeRange.rawValue.lowercased())
                         .font(DS.Typeface.caption)
                         .foregroundStyle(DS.Palette.textMuted)
@@ -151,6 +153,18 @@ struct DashboardView: View {
                     Text(excludedCaption)
                         .font(DS.Typeface.caption)
                         .foregroundStyle(DS.Palette.textMuted)
+                }
+        }
+        return VStack(alignment: .leading, spacing: DS.Space.l) {
+            // Key figures sit beside the net worth, and drop below it in a narrow window.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: DS.Space.xl) {
+                    summary.fixedSize()
+                    statsStrip(code: code)
+                }
+                VStack(alignment: .leading, spacing: DS.Space.l) {
+                    summary
+                    statsStrip(code: code)
                 }
             }
 
@@ -173,15 +187,19 @@ struct DashboardView: View {
                 .help("Set an account to the balance it has right now")
             }
 
-            statsStrip(code: code)
-
             if !store.currenciesMissingRate.isEmpty {
-                Label(
-                    "Set an exchange rate for \(store.currenciesMissingRate.joined(separator: ", ")) in Settings so totals are accurate.",
-                    systemImage: "exclamationmark.triangle"
-                )
-                .font(DS.Typeface.caption)
-                .foregroundStyle(DS.Palette.warning)
+                Button {
+                    router.selection = .settings
+                } label: {
+                    Label(
+                        "Set an exchange rate for \(store.currenciesMissingRate.joined(separator: ", ")) in Settings so totals are accurate.",
+                        systemImage: "exclamationmark.triangle"
+                    )
+                    .font(DS.Typeface.caption)
+                    .foregroundStyle(DS.Palette.warning)
+                }
+                .buttonStyle(.plain)
+                .help("Open Settings to set the rate")
             }
         }
     }
@@ -194,7 +212,6 @@ struct DashboardView: View {
                 Text("Cash and checking")
                 if store.scheduledTotal > 0 {
                     Text("\(store.scheduledTotal.formatted(.currency(code: code))) set aside")
-                        .foregroundStyle(DS.Palette.warning)
                 }
                 if store.scheduledRefundTotal > 0 {
                     Text("\(store.scheduledRefundTotal.formatted(.currency(code: code))) coming back")
@@ -266,6 +283,7 @@ struct DashboardView: View {
                 PageScroll {
                     VStack(alignment: .leading, spacing: DS.Space.xl) {
                         header
+                            .onAppear(perform: fitTimeRangeToHistory)
 
                         if !store.openAccounts.isEmpty {
                             accountCarousel
@@ -287,7 +305,7 @@ struct DashboardView: View {
         .navigationTitle("Dashboard")
         .safeAreaInset(edge: .top, spacing: 0) {
             PageHeader(title: "Dashboard")
-                .background(DS.Palette.background)
+                .pageHeaderBackground()
         }
         .onChange(of: timeRange) { _, range in
             TestDataMode.defaults.set(range.rawValue, forKey: Self.timeRangeKey)
@@ -481,7 +499,7 @@ struct DashboardView: View {
             }
             .frame(maxHeight: .infinity)
         }
-        .dashboardCard(fillHeight: true)
+        .dashboardCard(fillHeight: true, glow: DS.Palette.accent)
     }
 
     private func legendItem(_ series: HistorySeries) -> some View {
@@ -633,6 +651,15 @@ struct DashboardView: View {
             ?? .lastYear
     }
 
+    /// Until the user picks a range, the shortest one that shows all the history there is.
+    private func fitTimeRangeToHistory() {
+        guard TestDataMode.defaults.string(forKey: Self.timeRangeKey) == nil,
+            let oldest = store.entries.map(\.date).min(),
+            let days = Calendar.current.dateComponents([.day], from: oldest, to: .now).day
+        else { return }
+        if days < 365 { timeRange = days < 7 ? .last7Days : days < 30 ? .last30Days : .all }
+    }
+
     private static func storedGrouping() -> HistoryGrouping {
         HistoryGrouping(rawValue: TestDataMode.defaults.string(forKey: groupingKey) ?? "")
             ?? .netWorth
@@ -674,6 +701,22 @@ private struct DashboardAccountCard: View {
     @Environment(AppRouter.self) private var router
 
     var body: some View {
+        Button {
+            router.ledgerAccountID = account.id
+            router.selection = .ledger
+        } label: {
+            card
+        }
+        .buttonStyle(.plain)
+        .help("Show \(account.name) in the Ledger")
+        .contextMenu {
+            Button("Update value", systemImage: "plusminus") {
+                router.sheet = .reconcileAccount(account)
+            }
+        }
+    }
+
+    private var card: some View {
         VStack(alignment: .leading, spacing: DS.Space.xs) {
             IconBubble(systemName: account.icon.rawValue, tint: account.color.color, size: 32)
             Spacer(minLength: 0)
@@ -690,14 +733,7 @@ private struct DashboardAccountCard: View {
         }
         .padding(DS.Space.m)
         .frame(width: 176, height: 128, alignment: .leading)
-        .background(
-            DS.Palette.surface,
-            in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
-        .contextMenu {
-            Button("Update value", systemImage: "plusminus") {
-                router.sheet = .reconcileAccount(account)
-            }
-        }
+        .background(CardBackground(glow: account.color.color))
     }
 }
 

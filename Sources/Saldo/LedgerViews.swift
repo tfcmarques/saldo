@@ -45,14 +45,22 @@ struct LedgerView: View {
     /// `store.entries` is already newest first, so filtering keeps the order.
     private var filteredEntries: [LedgerEntry] {
         let range = dateRange
+        let spareChangeIDs = store.spareChangeTransferIDs
         return store.entries.filter { entry in
             !store.isPending(entry)
+                && !hidesSpareChangeLeg(entry, ids: spareChangeIDs)
                 && (range.map { $0.contains(entry.date) } ?? true)
                 && (accountID == nil || entry.accountID == accountID)
                 && (kind == nil || entry.kind == kind)
                 && (categoryName == nil || entry.category == categoryName)
                 && matchesSearch(entry)
         }
+    }
+
+    /// Spare change shows on its expense. The savings side shows only when that account is filtered.
+    private func hidesSpareChangeLeg(_ entry: LedgerEntry, ids: Set<UUID>) -> Bool {
+        guard let transferID = entry.transferID, ids.contains(transferID) else { return false }
+        return !(entry.kind == .income && entry.accountID == accountID)
     }
 
     private func categoryTotals(of entries: [LedgerEntry]) -> [CategoryTotal] {
@@ -81,8 +89,13 @@ struct LedgerView: View {
         }
     }
 
+    /// With every account and both kinds in view, a transfer is one row instead of its two sides.
+    private var mergesTransfers: Bool { accountID == nil && kind == nil }
+
     var body: some View {
         let filtered = filteredEntries
+        let paired = mergesTransfers ? store.pairedTransferIDs : []
+        let shown = filtered.filter { !store.isReceivingLeg($0, paired: paired) }
         Group {
             if store.entries.isEmpty {
                 ContentUnavailableView(
@@ -93,28 +106,51 @@ struct LedgerView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 VStack(spacing: 0) {
-                    if !store.scheduledEntries.isEmpty {
-                        ScheduledPaymentsCard(store: store)
-                            .padding(.horizontal, 20)
-                            .padding(.top, 16)
-                    }
+                    // AppKit only draws a list into an offscreen image when a plain view sits beside it.
+                    if TestDataMode.isSnapshotting { Color.clear.frame(height: 1) }
                     List {
                         Section {
-                            filters(net: netTotal(of: filtered), count: filtered.count)
+                            filters(net: netTotal(of: filtered), count: shown.count)
+                        }
+
+                        if !store.scheduledEntries.isEmpty {
+                            Section {
+                                ScheduledPaymentsCard(store: store)
+                                    .listRowInsets(EdgeInsets())
+                                    .listRowSeparator(.hidden)
+                            }
                         }
 
                         let totals = categoryTotals(of: filtered)
                         if !totals.isEmpty {
                             Section {
-                                DisclosureGroup(isExpanded: $showsCategoryTotals) {
+                                Button {
+                                    showsCategoryTotals.toggle()
+                                } label: {
+                                    HStack {
+                                        SectionLabel("Spending by category")
+                                        Spacer()
+                                        Image(
+                                            systemName: showsCategoryTotals
+                                                ? "chevron.up" : "chevron.down"
+                                        )
+                                        .font(DS.Typeface.caption.weight(.semibold))
+                                        .foregroundStyle(DS.Palette.textMuted)
+                                    }
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .help(
+                                    showsCategoryTotals
+                                        ? "Hide the totals per category"
+                                        : "Show what these entries add up to per category")
+                                if showsCategoryTotals {
                                     ForEach(totals) { total in
                                         CategoryRow(
                                             total: total,
                                             maximum: totals.first?.amount ?? total.amount,
                                             currencyCode: store.settings.currencyCode)
                                     }
-                                } label: {
-                                    SectionLabel("Spending by category")
                                 }
                             }
                         }
@@ -128,35 +164,45 @@ struct LedgerView: View {
                             )
                         } else {
                             ForEach(dayGroups(of: filtered), id: \.day) { group in
+                                let rows = group.entries.filter {
+                                    !store.isReceivingLeg($0, paired: paired)
+                                }
                                 Section {
-                                    ForEach(group.entries) { entry in
+                                    ForEach(rows) { entry in
                                         EntryRow(
                                             entry: entry,
                                             accountName: accountName(for: entry),
                                             categoryIcon: categoryIcon(for: entry.category),
                                             categoryColor: categoryColor(for: entry.category),
+                                            showsBothSides: entry.transferID.map(paired.contains)
+                                                ?? false,
                                             store: store
                                         )
                                     }
                                     .onDelete { offsets in
                                         store.deleteEntries(
-                                            offsets.map { group.entries[$0] },
+                                            offsets.map { rows[$0] },
                                             undoManager: undoManager)
                                     }
                                 } header: {
                                     HStack {
                                         SectionLabel(dayTitle(group.day))
                                         Spacer()
-                                        MoneyText(
-                                            amount: netTotal(of: group.entries),
-                                            currencyCode: store.settings.currencyCode,
-                                            font: DS.Typeface.caption, signed: true)
+                                        // A single row already shows the day's net.
+                                        if rows.count > 1 {
+                                            MoneyText(
+                                                amount: netTotal(of: group.entries),
+                                                currencyCode: store.settings.currencyCode,
+                                                font: DS.Typeface.caption, signed: true)
+                                        }
                                     }
                                     .textCase(.none)
                                 }
                             }
                         }
                     }
+                    // Lines the rows up with the page title. contentMargins has no effect on a macOS List.
+                    .padding(.horizontal, DS.Space.m)
                 }
             }
         }
@@ -196,9 +242,16 @@ struct LedgerView: View {
                     .disabled(store.openAccounts.isEmpty)
                     .help("Record income or an expense (⌘N)")
             }
-            .background(DS.Palette.background)
+            .pageHeaderBackground()
         }
         .onChange(of: router.searchRequest) { isSearchFocused = true }
+        .onAppear {
+            // The Dashboard sends an account here; show everything it has.
+            guard let id = router.ledgerAccountID else { return }
+            accountID = id
+            dateScope = .all
+            router.ledgerAccountID = nil
+        }
     }
 
     private func dayGroups(of entries: [LedgerEntry]) -> [(day: Date, entries: [LedgerEntry])] {
@@ -214,35 +267,21 @@ struct LedgerView: View {
         return groups
     }
 
-    private func dayTitle(_ day: Date) -> String {
-        let calendar = Calendar.current
-        if calendar.isDateInToday(day) { return "Today" }
-        if calendar.isDateInYesterday(day) { return "Yesterday" }
-        let sameYear = calendar.isDate(day, equalTo: .now, toGranularity: .year)
-        return day.formatted(
-            sameYear
-                ? .dateTime.weekday(.wide).day().month(.wide)
-                : .dateTime.day().month(.wide).year())
-    }
-
     private func filters(net: Double, count: Int) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: DS.Space.xxs) {
-                    MoneyText(
-                        amount: net, currencyCode: store.settings.currencyCode,
-                        font: DS.Typeface.figure, signed: true)
-                    Text("Net across \(count == 1 ? "1 entry" : "\(count) entries")")
-                        .font(DS.Typeface.caption)
-                        .foregroundStyle(DS.Palette.textSecondary)
-                }
-                Spacer()
+            VStack(alignment: .leading, spacing: DS.Space.xxs) {
+                MoneyText(
+                    amount: net, currencyCode: store.settings.currencyCode,
+                    font: DS.Typeface.figure, signed: true)
+                Text("Net across \(count == 1 ? "1 entry" : "\(count) entries")")
+                    .font(DS.Typeface.caption)
+                    .foregroundStyle(DS.Palette.textSecondary)
+            }
+            HStack(spacing: DS.Space.xs) {
                 PillPicker(
                     title: "Range", selection: $dateScope,
                     options: DateScope.allCases.map { PillOption(value: $0, label: $0.rawValue) },
                     help: "Show entries from this period")
-            }
-            HStack(spacing: DS.Space.xs) {
                 PillPicker(
                     title: "Account", selection: $accountID,
                     allOption: PillOption(value: nil, label: "All accounts"),
@@ -336,8 +375,7 @@ private struct CategoryRow: View {
             Text(total.name)
                 .font(DS.Typeface.bodyStrong)
                 .frame(minWidth: 110, alignment: .leading)
-            ProgressView(value: total.amount, total: maximum)
-                .tint(total.color.color)
+            ProgressBar(value: total.amount, total: maximum, tint: total.color.color)
             MoneyText(amount: total.amount, currencyCode: currencyCode)
                 .frame(minWidth: 90, alignment: .trailing)
         }
@@ -350,26 +388,26 @@ private struct EntryRow: View {
     let accountName: String
     let categoryIcon: CategoryIcon
     let categoryColor: CategoryColor
+    /// A transfer standing for both of its sides: names both accounts, amount without a sign.
+    var showsBothSides = false
     let store: LedgerStore
     @Environment(AppRouter.self) private var router
     @Environment(\.undoManager) private var undoManager
-
-    private var title: String {
-        if let debtID = entry.debtID, let debt = store.debts.first(where: { $0.id == debtID }) {
-            return debt.direction == .iOwe ? "Payment to \(debt.name)" : "Payment from \(debt.name)"
-        }
-        guard entry.isTransfer else { return entry.category }
-        let legs = store.transferLegs(of: entry)
-        let other = entry.kind == .expense ? legs?.destination : legs?.source
-        let name = other.flatMap { leg in store.accounts.first { $0.id == leg.accountID }?.name }
-        guard let name else { return "Transfer" }
-        return entry.kind == .expense ? "Transfer to \(name)" : "Transfer from \(name)"
-    }
+    @State private var isHovered = false
 
     private var details: [String] {
-        var parts = [entry.displayNote, accountName]
+        var parts = showsBothSides ? [entry.displayNote] : [entry.displayNote, accountName]
         if entry.source == .interest || entry.source == .recurring { parts.append("Automatic") }
         return parts
+    }
+
+    /// Amount this expense rounded up into savings, and the account that received it.
+    private var spareChangeSaved: (amount: String, accountName: String)? {
+        guard let id = entry.spareChangeTransferID,
+            let leg = store.entries.first(where: { $0.transferID == id && $0.kind == .income }),
+            let account = store.accounts.first(where: { $0.id == leg.accountID })
+        else { return nil }
+        return (leg.amount.formatted(.currency(code: store.currencyCode(for: account))), account.name)
     }
 
     private var canEdit: Bool { !entry.isTransfer || store.transferLegs(of: entry) != nil }
@@ -378,14 +416,27 @@ private struct EntryRow: View {
         TransactionRow(
             symbol: entry.isTransfer ? "arrow.left.arrow.right" : categoryIcon.rawValue,
             tint: entry.isTransfer ? DS.Palette.textSecondary : categoryColor.color,
-            title: title,
+            title: store.title(for: entry, bothSides: showsBothSides),
             details: details,
             amount: store.signedAmount(entry),
             currencyCode: store.currencyCode(forAccountID: entry.accountID),
             badge: store.isPending(entry)
-                ? StatusBadge(text: "Scheduled", systemImage: "clock", tone: .warning) : nil)
+                ? StatusBadge(text: "Scheduled", systemImage: "clock", tone: .warning) : nil,
+            accessoryBadge: spareChangeSaved.map {
+                StatusBadge(text: "\($0.amount) saved", systemImage: "centsign.circle", tone: .success)
+            },
+            neutralAmount: showsBothSides)
+        .background(
+            DS.Palette.textPrimary.opacity(isHovered && canEdit ? 0.04 : 0),
+            in: RoundedRectangle(cornerRadius: DS.Radius.small, style: .continuous)
+                .inset(by: -DS.Space.xxs))
         .contentShape(Rectangle())
-        .onTapGesture(count: 2) { if canEdit { edit() } }
+        .onHover { isHovered = $0 }
+        .help(
+            spareChangeSaved.map {
+                "Spare change of \($0.amount) saved in \($0.accountName). Click to edit."
+            } ?? (canEdit ? "Click to edit" : ""))
+        .onTapGesture { if canEdit { edit() } }
         .accessibilityAction(named: "Edit entry") { if canEdit { edit() } }
         .contextMenu {
             Button("Edit entry", systemImage: "pencil") { edit() }
@@ -421,8 +472,32 @@ struct AccountsView: View {
 
     private var closedAccounts: [Account] { store.accounts.filter(\.isClosed) }
 
+    /// Type and currency, plus what a foreign balance is worth in the main currency.
     private func accountDetails(_ account: Account) -> [String] {
-        [account.type.rawValue, account.currencyCode]
+        var parts = [account.type.rawValue, account.currencyCode]
+        let code = store.currencyCode(for: account)
+        if code != store.settings.currencyCode {
+            parts.append(
+                store.currenciesMissingRate.contains(code)
+                    ? "Rate needed"
+                    : store.baseBalance(for: account)
+                        .formatted(.currency(code: store.settings.currencyCode)))
+        }
+        return parts
+    }
+
+    @State private var showsClosedAccounts = false
+
+    private func openAccountsHeader(_ title: String) -> some View {
+        HStack {
+            SectionLabel(title)
+            Spacer()
+            MoneyText(
+                amount: store.openAccounts.reduce(0) { $0 + store.baseBalance(for: $1) },
+                currencyCode: store.settings.currencyCode, font: DS.Typeface.caption)
+        }
+        .textCase(.none)
+        .help("Total of your open accounts in \(store.settings.currencyCode)")
     }
 
     private var deletionMessage: String {
@@ -445,19 +520,39 @@ struct AccountsView: View {
             } else {
                 List {
                     if !store.openAccounts.isEmpty {
-                        if closedAccounts.isEmpty {
+                        Section {
                             openAccountRows
-                        } else {
-                            Section("Open") { openAccountRows }
+                        } header: {
+                            openAccountsHeader(closedAccounts.isEmpty ? "Accounts" : "Open")
                         }
-                    }
-                    if !closedAccounts.isEmpty {
-                        Section("Closed") { closedAccountRows }
                     }
                     if !store.debts.isEmpty {
                         Section("Debts") { debtRows }
                     }
+                    if !closedAccounts.isEmpty {
+                        // Section(isExpanded:) only collapses in a sidebar list on macOS.
+                        Section {
+                            if showsClosedAccounts { closedAccountRows }
+                        } header: {
+                            Button {
+                                withAnimation { showsClosedAccounts.toggle() }
+                            } label: {
+                                HStack(spacing: DS.Space.xs) {
+                                    Image(systemName: "chevron.right")
+                                        .rotationEffect(.degrees(showsClosedAccounts ? 90 : 0))
+                                    Text("Closed (\(closedAccounts.count))")
+                                    Spacer()
+                                }
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityValue(showsClosedAccounts ? "Expanded" : "Collapsed")
+                            .help(showsClosedAccounts ? "Hide closed accounts" : "Show closed accounts")
+                        }
+                    }
                 }
+                // Lines the rows up with the page title. contentMargins has no effect on a macOS List.
+                    .padding(.horizontal, DS.Space.m)
             }
         }
         .pageList()
@@ -477,7 +572,7 @@ struct AccountsView: View {
                     .buttonStyle(.pill(.primary))
                     .help("Add a bank, cash, savings, or investment account")
             }
-                .background(DS.Palette.background)
+                .pageHeaderBackground()
         }
         .confirmationDialog(
             debtPendingDeletion.map { "Delete \($0.name)?" } ?? "Delete this debt?",
@@ -644,7 +739,14 @@ struct AddEntrySheet: View {
     @State private var spareChangeEnabled = false
     @State private var spareChangeAccountID: UUID?
     @State private var isAddingCategory = false
+    @State private var categoriesBeforeAdding: Set<String> = []
+    @State private var confirmsDiscard = false
+    /// Bumped by "Add another" to rebuild the amount field empty and focused.
+    @State private var formRound = 0
     @State private var countsInAvailable: Bool
+
+    /// Picker value that opens the New category sheet instead of selecting a category.
+    private static let newCategoryTag = "\u{0}new"
 
     init(
         store: LedgerStore, entry: LedgerEntry? = nil, initialKind: EntryKind = .expense,
@@ -663,8 +765,14 @@ struct AddEntrySheet: View {
         _date = State(initialValue: initialDate)
         _accountID = State(initialValue: entry?.accountID)
         let existingSpareChange = entry.flatMap { store.spareChangeLegs(for: $0) }
-        _spareChangeEnabled = State(initialValue: existingSpareChange != nil)
-        _spareChangeAccountID = State(initialValue: existingSpareChange?.destination.accountID)
+        // New expenses round up automatically when Settings names an open savings account.
+        let defaultAccountID = store.settings.spareChangeAccountID.flatMap { id in
+            store.openAccounts.contains { $0.id == id && $0.type == .savings } ? id : nil
+        }
+        _spareChangeEnabled = State(
+            initialValue: entry == nil ? defaultAccountID != nil : existingSpareChange != nil)
+        _spareChangeAccountID = State(
+            initialValue: existingSpareChange?.destination.accountID ?? defaultAccountID)
         _countsInAvailable = State(initialValue: entry?.countsInAvailable ?? true)
     }
 
@@ -678,7 +786,11 @@ struct AddEntrySheet: View {
             in: store.openAccounts.filter { $0.type == .savings && $0.id != accountID })
     }
 
-    private var spareChange: Double { store.spareChange(for: amount) }
+    private var spareChangeMultiplier: Int { store.spareChangeMultiplier(for: entry) }
+
+    private var spareChange: Double {
+        store.spareChange(for: amount, multiplier: spareChangeMultiplier)
+    }
 
     private var showsSpareChange: Bool { kind == .expense }
 
@@ -691,7 +803,7 @@ struct AddEntrySheet: View {
     private var schedulesRefund: Bool { kind == .income && isFutureDate }
 
     private var spareChangeIsReady: Bool {
-        !spareChangeEnabled || (spareChange > 0 && spareChangeAccountID != nil)
+        !spareChangeEnabled || spareChange == 0 || spareChangeAccountID != nil
     }
 
     var body: some View {
@@ -702,7 +814,9 @@ struct AddEntrySheet: View {
             .pickerStyle(.segmented)
             AmountField(
                 "Amount (\(amountCurrency))", value: $amount, currencyCode: amountCurrency,
-                isValid: $isAmountValid, focusesOnAppear: true)
+                isValid: $isAmountValid, focusesOnAppear: true
+            )
+            .id(formRound)
             Picker("Account", selection: $accountID) {
                 Text("Choose an account").tag(UUID?.none)
                 ForEach(store.includingSelection(accountID, in: store.accountsByUsage)) { account in
@@ -715,11 +829,10 @@ struct AddEntrySheet: View {
                     Label(storedCategory.name, systemImage: Symbol.outline(storedCategory.icon.rawValue))
                         .tag(storedCategory.name)
                 }
+                Divider()
+                Label("New category\u{2026}", systemImage: "plus").tag(Self.newCategoryTag)
             }
-            Button("New category", systemImage: "plus") { isAddingCategory = true }
-                .buttonStyle(.pill(.secondary, compact: true))
-                .help("Create a category you can use on entries")
-            TextField("Description", text: $note)
+            TextField("Description", text: $note, prompt: Text("Optional"))
             if showsSpareChange {
                 spareChangeSection
             }
@@ -746,35 +859,40 @@ struct AddEntrySheet: View {
         .navigationTitle(sheetTitle)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") { dismiss() }
-                .buttonStyle(.pill(.secondary))
+                Button("Cancel", action: cancel)
+                    .buttonStyle(.pill(.secondary))
+            }
+            if entry == nil {
+                ToolbarItem {
+                    Button("Add another", action: addAnother)
+                        .disabled(!canSave)
+                        .buttonStyle(.pill(.secondary))
+                }
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button(confirmTitle) {
-                    guard let accountID else { return }
-                    if let entry {
-                        store.updateEntry(
-                            entry, kind: kind, category: category, note: note, amount: amount,
-                            date: date, accountID: accountID,
-                            spareChangeAccountID: spareChangeEnabled ? spareChangeAccountID : nil,
-                            countsInAvailable: countsInAvailable)
-                    } else {
-                        store.addEntry(
-                            kind: kind, category: category, note: note, amount: amount,
-                            date: date, accountID: accountID,
-                            spareChangeAccountID: spareChangeEnabled ? spareChangeAccountID : nil,
-                            countsInAvailable: countsInAvailable)
-                    }
+                    save()
                     dismiss()
                 }
-                .disabled(
-                    accountID == nil
-                        || category.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        || !isAmountValid
-                        || amount <= 0
-                        || !spareChangeIsReady)
+                .disabled(!canSave)
                 .buttonStyle(.pill(.primary))
             }
+        }
+        // Escape and ⌘Return are handled here: with a field focused, the sheet's own Escape
+        // skips the Cancel button, and a shortcut on a toolbar button does not fire.
+        .interactiveDismissDisabled(hasUnsavedInput)
+        .onExitCommand(perform: cancel)
+        .onKeyPress(.return, phases: .down) { press in
+            guard press.modifiers.contains(.command), entry == nil, canSave else { return .ignored }
+            addAnother()
+            return .handled
+        }
+        .confirmationDialog(
+            entry == nil ? "Discard this entry?" : "Discard your changes?",
+            isPresented: $confirmsDiscard, titleVisibility: .visible
+        ) {
+            Button("Discard", role: .destructive) { dismiss() }
+            Button("Keep editing", role: .cancel) {}
         }
         .onAppear {
             if entry == nil {
@@ -785,10 +903,13 @@ struct AddEntrySheet: View {
                 spareChangeAccountID = savingsAccounts.first?.id
             }
         }
-        .onChange(of: accountID) { _, _ in alignSpareChangeAccount() }
-        .onChange(of: amount) { _, _ in
-            if spareChange == 0 { spareChangeEnabled = false }
+        .onChange(of: category) { old, new in
+            guard new == Self.newCategoryTag else { return }
+            category = old
+            categoriesBeforeAdding = Set(store.categories.map(\.name))
+            isAddingCategory = true
         }
+        .onChange(of: accountID) { _, _ in alignSpareChangeAccount() }
         .onChange(of: kind) { oldKind, _ in
             if kind != .expense { spareChangeEnabled = false }
             if entry == nil, category.isEmpty || category == lastUsedCategory(for: oldKind) {
@@ -796,9 +917,56 @@ struct AddEntrySheet: View {
             }
         }
         .sheet(isPresented: $isAddingCategory) {
+            // Select the category that was just created.
+            if let added = store.categories.first(where: {
+                !categoriesBeforeAdding.contains($0.name)
+            }) {
+                category = added.name
+            }
+        } content: {
             NavigationStack {
                 AddCategorySheet(store: store)
             }
+        }
+    }
+
+    private var canSave: Bool {
+        accountID != nil
+            && !category.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && isAmountValid && amount > 0 && spareChangeIsReady
+    }
+
+    /// An amount or description typed here that closing the sheet would lose.
+    private var hasUnsavedInput: Bool {
+        amount != (entry?.amount ?? 0) || note != (entry?.note ?? "")
+    }
+
+    private func cancel() {
+        if hasUnsavedInput { confirmsDiscard = true } else { dismiss() }
+    }
+
+    /// Saves and keeps the sheet open on the same account, category and date.
+    private func addAnother() {
+        save()
+        amount = 0
+        note = ""
+        formRound += 1
+    }
+
+    private func save() {
+        guard let accountID else { return }
+        if let entry {
+            store.updateEntry(
+                entry, kind: kind, category: category, note: note, amount: amount,
+                date: date, accountID: accountID,
+                spareChangeAccountID: spareChangeEnabled ? spareChangeAccountID : nil,
+                countsInAvailable: countsInAvailable)
+        } else {
+            store.addEntry(
+                kind: kind, category: category, note: note, amount: amount,
+                date: date, accountID: accountID,
+                spareChangeAccountID: spareChangeEnabled ? spareChangeAccountID : nil,
+                countsInAvailable: countsInAvailable)
         }
     }
 
@@ -825,7 +993,7 @@ struct AddEntrySheet: View {
     private var spareChangeSection: some View {
         Section {
             Toggle("Spare change", isOn: $spareChangeEnabled)
-                .disabled(savingsAccounts.isEmpty || spareChange == 0)
+                .disabled(savingsAccounts.isEmpty)
             if spareChangeEnabled, spareChange > 0 {
                 Picker("Save into", selection: $spareChangeAccountID) {
                     Text("Choose a savings account").tag(UUID?.none)
@@ -843,7 +1011,10 @@ struct AddEntrySheet: View {
     }
 
     private var spareChangeSummary: String {
-        let spare = spareChange.formatted(.currency(code: amountCurrency))
+        let formatted = spareChange.formatted(.currency(code: amountCurrency))
+        let spare =
+            spareChangeMultiplier > 1
+            ? "\(formatted) (round-up x\(spareChangeMultiplier))" : formatted
         guard let destination = savingsAccounts.first(where: { $0.id == spareChangeAccountID })
         else { return "\(spare) will leave this account." }
         let destinationCode = store.currencyCode(for: destination)
@@ -884,7 +1055,7 @@ struct AccountSheet: View {
         self.account = account
         _name = State(initialValue: account?.name ?? "")
         _type = State(initialValue: account?.type ?? .checking)
-        _icon = State(initialValue: account?.icon ?? .wallet)
+        _icon = State(initialValue: account?.icon ?? AccountType.checking.defaultIcon)
         _color = State(initialValue: account?.color ?? store.nextAvailableAccountColor)
         _openingBalance = State(initialValue: account?.openingBalance ?? 0)
         _currency = State(initialValue: account?.currencyCode ?? "")
@@ -905,6 +1076,10 @@ struct AccountSheet: View {
                     .focused($isNameFocused)
                 Picker("Type", selection: $type) {
                     ForEach(AccountType.allCases) { Text($0.rawValue).tag($0) }
+                }
+                // The icon follows the type until the user picks one of their own.
+                .onChange(of: type) { old, new in
+                    if icon == old.defaultIcon { icon = new.defaultIcon }
                 }
                 CurrencyPicker(currency: $currency, store: store)
                 AmountField(

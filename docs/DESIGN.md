@@ -51,6 +51,34 @@ Rules:
 - `accent` is for interaction and emphasis, never decoration.
 - Account and category colours come from the user's choice (`PaletteColor`). Show them only
   inside an `IconBubble` or a chart series.
+- New accounts and categories never start identical: an account takes its type's icon
+  (`AccountType.defaultIcon`), a category takes an icon guessed from its name
+  (`CategoryIcon.suggested(for:)`) and the next unused colour. The user can change both.
+
+## Ambient theme
+
+Settings, Theme, Ambient swaps the tokens while `DS.isAmbient` is on; views do not change.
+It follows the system's light or dark appearance.
+
+- Palette: near-black `#080910` or off-white `#F1F2F3` pages, blue accent, emerald
+  `success`, orange `danger`. Each `DS.Palette` token carries its Ambient pair.
+- Cards (`CardBackground`, used by `.surface()`): radius 28, a hairline edge, a soft shadow
+  and a light tinted by `glow:`. Pass the main colour of what the card shows (an
+  account's own colour, a chart's series colour); leave it out for a faint silver light.
+  Never give a card a glow colour that is not already in its content.
+- Type: `display` is 52 regular, `figure` 30 regular, headings medium.
+
+## Glass theme
+
+Settings, Theme, Glass (macOS 26 only) is glassmorphism in green and black. It is always
+dark and has its own value for every `DS.Palette` token while `DS.isGlass` is on.
+
+- Backdrop: `PageBackdrop`, drawn once behind the window, is near-black with soft green
+  light. Pinned page headers repeat it (`.pageHeaderBackground()`).
+- Cards (`CardBackground`): frosted panels at radius 24, a faint white fill with a lit top
+  edge and a soft shadow. No coloured glow.
+- Liquid Glass: the sidebar (a floating rounded panel), pill buttons, `PillPicker` and
+  `SearchField`, through `.capsuleFill()`. Primary buttons are green-tinted glass.
 
 ## Typography (`DS.Typeface`)
 
@@ -68,7 +96,7 @@ San Francisco, the system font. All money uses tabular figures (`.monospacedDigi
 | `body` / `bodyStrong` | Body / medium | Rows, buttons |
 | `small` | Callout | Secondary lines, search |
 | `caption` | Caption | Metadata, captions, badges |
-| `micro` | Caption 2 | The smallest labels, like "Registered Mac user" |
+| `micro` | Caption 2 | The smallest labels |
 
 ## Spacing (`DS.Space`)
 
@@ -102,6 +130,7 @@ Buttons, badges and search are capsules. Always use `.continuous` corners.
 | `TransactionRow` | `IconBubble`, title over a `DetailLine`, `MoneyText` on the right | Ledger, recent activity |
 | `SectionLabel` | Semibold secondary label | Day headers, small section titles |
 | `DetailLine` | Secondary facts side by side; the first in `textSecondary`, the rest in `textMuted` | Any subtitle with more than one fact, instead of separator glyphs |
+| `ProgressBar` | Thin capsule track that draws nothing at zero | Bills handled, a debt paid down, category totals. Never the system progress bar |
 | `UserAvatar` | The Mac account picture, or initials on `inverse` | Sidebar, anywhere the owner appears |
 | `.formHint()` | Caption in `textSecondary` | The explanation under a form field |
 | `quietYAxis()` | Dashed `border` gridlines, `textMuted` labels | Every chart's y axis |
@@ -137,8 +166,19 @@ when an outline version exists (`Symbol.outline`).
   Bills are split into "Still to pay" and "Paid or skipped this month"; clicking a row
   ticks it. Ticks clear on the 1st.
 - **Lists.** Rows are `TransactionRow` or close to it: amounts right-aligned, subtle
-  separators. The ledger groups entries by day ("Today", "Yesterday", "Friday,
-  6 November") with each day's net on the right.
+  separators. Rows start on the same left edge as the page title. The ledger groups
+  entries by day (`dayTitle`: "Today", "Yesterday", "Friday, 6 November") with the day's
+  net on the right when the day has more than one row.
+- **Ledger page.** Top to bottom: the net figure, one row of filters (range, account,
+  activity, category), scheduled payments, the category totals toggle, then the days.
+  Everything scrolls together.
+- **Transfers are one row** wherever every account is in view (the Ledger with no account
+  or activity filter, Recent activity): "Everyday to Rainy day", amount with no sign or
+  colour. Filtering to one account shows that account's side with its sign.
+- **An entry reads the same everywhere.** The title comes from `store.title(for:)`
+  (category, debt or transfer accounts); the description is a detail.
+- **Clicking a row opens it.** Ledger rows, Recent activity rows and debts open on one
+  click and show a hover fill. A Dashboard account card opens the Ledger filtered to it.
 - **Sheets.** See below.
 
 ## Sheets
@@ -153,6 +193,12 @@ when an outline version exists (`Symbol.outline`).
 - The free-text field is always "Description". Amount labels always name the currency:
   "Opening balance (EUR)".
 - Explain a field with `.formHint()` under it. Don't repeat the same text as a tooltip.
+- Creating something a picker lacks is the last item of that picker ("New category…"),
+  not a separate button. The new item is selected when its sheet closes.
+- New entry has "Add another" (⌘Return): it saves and keeps the account, category and date.
+- Cancel or Escape asks before discarding an amount or description that was typed.
+- Pickers where the balance decides the choice show it: "Everyday (€1 200,00)". A new
+  transfer starts from the accounts of the last one.
 - Show the consequence before it happens: the gain or loss an update creates, what is left
   on a debt, the converted amount of a transfer.
 

@@ -26,8 +26,10 @@ struct TransferSheet: View {
             _date = State(initialValue: legs.source.date)
             _note = State(initialValue: legs.source.note)
         } else {
-            _fromID = State(initialValue: store.openAccounts.first?.id)
-            _toID = State(initialValue: store.openAccounts.dropFirst().first?.id)
+            // Most transfers repeat the last one, like checking to savings every month.
+            let pair = store.lastTransferPair
+            _fromID = State(initialValue: pair?.from ?? store.openAccounts.first?.id)
+            _toID = State(initialValue: pair?.to ?? store.openAccounts.dropFirst().first?.id)
         }
     }
 
@@ -55,12 +57,12 @@ struct TransferSheet: View {
         Form {
             Picker("From", selection: $fromID) {
                 ForEach(store.includingSelection(fromID, in: store.openAccounts)) { account in
-                    Label(account.name, systemImage: Symbol.outline(account.icon.rawValue)).tag(Optional(account.id))
+                    Label(store.nameWithBalance(account), systemImage: Symbol.outline(account.icon.rawValue)).tag(Optional(account.id))
                 }
             }
             Picker("To", selection: $toID) {
                 ForEach(store.includingSelection(toID, in: store.openAccounts)) { account in
-                    Label(account.name, systemImage: Symbol.outline(account.icon.rawValue)).tag(Optional(account.id))
+                    Label(store.nameWithBalance(account), systemImage: Symbol.outline(account.icon.rawValue)).tag(Optional(account.id))
                 }
             }
             AmountField(
@@ -71,7 +73,7 @@ struct TransferSheet: View {
                     "Amount received (\(toCurrency))", value: receivedBinding,
                     currencyCode: toCurrency, isValid: $isReceivedValid)
             }
-            TextField("Description", text: $note)
+            TextField("Description", text: $note, prompt: Text("Optional"))
             DatePicker("Date", selection: $date, displayedComponents: .date)
             if fromID == toID {
                 Text("Choose two different accounts.")
